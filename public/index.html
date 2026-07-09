@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiểm soát vật tư PM - Khoa Phẫu thuật</title>
+<!-- Google Fonts: Inter (Premium Apple-like alternative) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <!-- MÀN HÌNH ĐĂNG NHẬP -->
+    <div id="view-login" class="view active">
+      <div class="login-wrapper">
+        <div class="login-card glass-panel">
+          <button id="btn-theme-toggle-login" class="theme-toggle corner" title="Chuyển giao diện Sáng/Tối">
+            <i data-lucide="moon"></i>
+          </button>
+
+          <div class="login-brand">
+            <div class="brand-icon"><i data-lucide="shield-check"></i></div>
+            <div class="brand-title">Kiểm soát Vật tư</div>
+            <div class="brand-sub">Khoa Phẫu thuật · Hệ thống nội bộ</div>
+          </div>
+
+          <!-- CỬA SỔ 1: ĐĂNG NHẬP -->
+          <div id="login-form-wrap" class="auth-panel">
+            <div class="form-group">
+              <label for="login-user">Tên đăng nhập</label>
+              <div class="input-with-icon">
+                <i data-lucide="user"></i>
+                <input type="text" id="login-user" class="apple-input full" placeholder="username" autocomplete="username">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="login-pass">Mật khẩu</label>
+              <div class="input-with-icon">
+                <i data-lucide="lock"></i>
+                <input type="password" id="login-pass" class="apple-input full" placeholder="••••••••" autocomplete="current-password">
+              </div>
+            </div>
+            <div class="form-inline-link">
+              <button id="btn-show-forgot" class="btn-link small">Quên mật khẩu?</button>
+            </div>
+            <button id="btn-login" class="btn-primary full">Đăng nhập <i data-lucide="arrow-right"></i></button>
+            <div id="login-msg" class="msg"></div>
+            <div class="login-footer">
+              Chưa có tài khoản? <button id="btn-show-register" class="btn-link">Đăng ký ngay</button>
+            </div>
+          </div>
+
+          <!-- CỬA SỔ 2: QUÊN MẬT KHẨU -->
+          <div id="forgot-form-wrap" class="auth-panel hidden">
+            <p class="auth-panel-desc">
+              <i data-lucide="info" style="width:14px;height:14px;vertical-align:-2px;"></i>
+              Nhập tên đăng nhập hoặc email đã đăng ký. Yêu cầu khôi phục sẽ được gửi đến Quản trị viên để được hỗ trợ đặt lại mật khẩu.
+            </p>
+            <div class="form-group">
+              <label for="forgot-identifier">Tên đăng nhập hoặc Email</label>
+              <div class="input-with-icon">
+                <i data-lucide="mail"></i>
+                <input type="text" id="forgot-identifier" class="apple-input full" placeholder="username hoặc email@benhvien.vn">
+              </div>
+            </div>
+            <button id="btn-forgot-submit" class="btn-primary full"><i data-lucide="send"></i> Gửi yêu cầu khôi phục</button>
+            <div id="forgot-msg" class="msg"></div>
+            <div class="login-footer">
+              Đã nhớ mật khẩu? <button id="btn-forgot-back" class="btn-link">Quay lại đăng nhập</button>
+            </div>
+          </div>
+
+          <!-- CỬA SỔ 3: ĐĂNG KÝ -->
+          <div id="register-form-wrap" class="auth-panel hidden">
+            <div class="form-group">
+              <label>Tên đăng nhập</label>
+              <input type="text" id="reg-user" class="apple-input full" placeholder="Tên đăng nhập">
+            </div>
+            <div class="form-group">
+              <label>Mật khẩu</label>
+              <input type="password" id="reg-pass" class="apple-input full" placeholder="Mật khẩu">
+            </div>
+            <div class="form-group">
+              <label>Họ tên đầy đủ</label>
+              <input type="text" id="reg-hoten" class="apple-input full" placeholder="Họ tên">
+            </div>
+            <div class="form-group">
+              <label>Khoa/Phòng</label>
+              <input type="text" id="reg-khoa" class="apple-input full" placeholder="VD: Khoa Phẫu thuật">
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" id="reg-email" class="apple-input full" placeholder="email@benhvien.vn">
+            </div>
+            <div class="form-group">
+              <label>Vai trò</label>
+              <select id="reg-vaitro" class="apple-input full">
+                <option value="NV_PM">NV Phòng mổ</option>
+                <option value="NV_KHOA_TRAI">NV Khoa/Trại</option>
+              </select>
+            </div>
+            <button id="btn-register" class="btn-primary full">Đăng ký</button>
+            <div id="reg-msg" class="msg"></div>
+            <div class="login-footer">
+              Đã có tài khoản? <button id="btn-show-login" class="btn-link">Quay lại đăng nhập</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MÀN HÌNH CHÍNH (Sau đăng nhập) -->
+    <div id="view-main" class="view hidden">
+      <header class="app-header glass-header">
+        <div class="header-left">
+          <div class="brand-icon small"><i data-lucide="activity"></i></div>
+          <div>
+            <div class="brand-title">Quản lý Vật tư</div>
+            <div class="brand-sub">Khoa Phẫu thuật</div>
+          </div>
+        </div>
+        <div class="header-right user-info">
+          <button id="btn-theme-toggle" class="theme-toggle" title="Chuyển giao diện Sáng/Tối"><i data-lucide="moon"></i></button>
+          <div class="avatar"><i data-lucide="user"></i></div>
+          <span id="user-display"></span>
+          <button id="btn-admin" class="btn-icon" title="Quản trị"><i data-lucide="settings"></i></button>
+          <button id="btn-logout" class="btn-icon text-danger" title="Đăng xuất"><i data-lucide="log-out"></i></button>
+        </div>
+      </header>
+
+      <div class="main-content">
+        <!-- MÀN HÌNH DASHBOARD -->
+        <div id="view-dashboard" class="view active">
+          <div class="dashboard-header">
+            <h2><i data-lucide="calendar"></i> Lịch mổ trong ngày</h2>
+            <div class="dash-controls">
+              <div class="input-with-icon">
+                <i data-lucide="calendar-days"></i>
+                <input type="date" id="dash-date" class="apple-input">
+              </div>
+              <button id="btn-show-upload" class="btn-primary"><i data-lucide="upload-cloud"></i> Upload File HIS</button>
+            </div>
+          </div>
+
+          <div id="dash-stats" class="dash-stats hidden"></div>
+
+          <div id="dashboard-list" class="dash-list">
+            <div class="empty-state"><i data-lucide="loader-2" class="spin"></i> Đang tải dữ liệu...</div>
+          </div>
+        </div>
+
+        <!-- MÀN HÌNH UPLOAD -->
+        <div id="view-upload" class="view hidden">
+          <div class="upload-header">
+            <button id="btn-back-dashboard" class="btn-ghost"><i data-lucide="arrow-left"></i> Quay lại Dashboard</button>
+          </div>
+
+          <div id="drop-zone" class="drop-zone">
+            <div class="drop-icon"><i data-lucide="file-up"></i></div>
+            <div class="drop-text">Kéo thả file HTML vào đây</div>
+            <div class="drop-hint">Hoặc click để chọn file từ hệ thống HIS</div>
+            <input type="file" id="file-input" accept=".html,.htm" hidden>
+          </div>
+
+          <div id="upload-msg" class="msg"></div>
+
+          <div id="ket-qua" class="hidden animate-fade-in">
+            <div class="info-card glass-panel">
+              <div class="info-row">
+                <div class="info-label">Mã BN</div>
+                <div class="info-val" id="kq-mabn"></div>
+              </div>
+              <div class="info-row">
+                <div class="info-label">Họ Tên</div>
+                <div class="info-val highlight-text" id="kq-hoten"></div>
+              </div>
+              <div class="info-row">
+                <div class="info-label">Ngày vào viện</div>
+                <div class="info-val" id="kq-ngayvaovien"></div>
+              </div>
+            </div>
+
+            <div class="section-card">
+              <div class="section-title"><i data-lucide="check-circle"></i> 1. Chọn đúng ca trong lịch đăng ký</div>
+              <div id="danh-sach-ca" class="card-grid"></div>
+            </div>
+
+            <div class="section-card">
+              <div class="section-title"><i data-lucide="list"></i> 2. Danh sách Vật tư / Thuốc / Chỉ định</div>
+              <p class="section-desc">Click vào từng mục để thêm ghi chú tường trình nếu cần.</p>
+              <div id="cac-nhom-muc"></div>
+            </div>
+
+            <div class="section-card hidden" id="khu-vuc-diff-container">
+              <div class="section-title"><i data-lucide="git-compare"></i> 3. So sánh cập nhật</div>
+              <div id="khu-vuc-diff"></div>
+            </div>
+
+            <div class="action-bar glass-panel fixed-bottom">
+              <div id="save-msg" class="msg"></div>
+              <button class="btn-primary huge" id="btn-luu" disabled><i data-lucide="save"></i> Xác nhận &amp; Chốt Vật Tư</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- MÀN HÌNH ADMIN -->
+        <div id="view-admin" class="view hidden">
+          <div class="upload-header">
+            <button id="btn-admin-back" class="btn-ghost"><i data-lucide="arrow-left"></i> Quay lại Dashboard</button>
+          </div>
+          <h2 style="margin-bottom:20px;"><i data-lucide="users"></i> Quản trị tài khoản</h2>
+          <div id="admin-user-list" class="glass-panel" style="padding:0; overflow:hidden;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL CHỐT VẬT TƯ -->
+  <div id="modal-chot" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i data-lucide="lock"></i> Xác nhận Chốt Vật Tư</h3>
+        <button id="btn-chot-close" class="btn-icon"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">Vui lòng chọn người xác nhận cuối cùng cho ca mổ này.</p>
+        <div id="chot-abnormal-warning" class="card-alert alert-repeat hidden" style="margin-bottom:12px; width:100%;">⚠ Cảnh báo: Ca mổ có chỉ định lặp lại bất thường. Bạn bắt buộc phải ghi Tường trình (Ghi chú chung) hoặc sửa lại trên HIS rồi upload lại trước khi Chốt.</div>
+        <div class="form-group">
+          <label>Người xác nhận</label>
+          <div class="input-with-icon">
+            <i data-lucide="user-check"></i>
+            <select id="chot-nguoi" class="apple-input full"></select>
+          </div>
+        </div>
+        <div id="chot-password-wrap" class="form-group hidden animate-slide-down">
+          <label>Mật khẩu người xác nhận</label>
+          <div class="input-with-icon">
+            <i data-lucide="key"></i>
+            <input type="password" id="chot-password" class="apple-input full" placeholder="Nhập mật khẩu để xác thực chéo">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Ghi chú (Note)</label>
+          <textarea id="chot-ghichu" class="apple-input full" rows="3" placeholder="Ghi chú chung cho toàn bộ ca này..."></textarea>
+        </div>
+        <div id="chot-msg" class="msg"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-chot-huy" class="btn-ghost">Hủy</button>
+        <button id="btn-chot-xacnhan" class="btn-primary"><i data-lucide="check"></i> Xác nhận Chốt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL XEM CHI TIẾT CA -->
+  <div id="modal-chitiet" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width:900px; max-height:90vh; display:flex; flex-direction:column;">
+      <div class="modal-header">
+        <h3><i data-lucide="file-text"></i> Chi tiết Vật tư - <span id="ct-hoten" class="highlight-text"></span></h3>
+        <button id="btn-ct-close" class="btn-icon"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto; flex:1; padding:20px;">
+        <div style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Mã BN: <b id="ct-mabn"></b></div>
+        <div id="ct-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

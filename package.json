@@ -1,0 +1,19 @@
+{
+  "name": "pm-system",
+  "version": "1.0.0",
+  "description": "Hệ thống kiểm soát vật tư & chỉ định ca mổ - Node.js + Google Sheets",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "googleapis": "^173.0.0",
+    "multer": "^2.2.0"
+  }
+}
