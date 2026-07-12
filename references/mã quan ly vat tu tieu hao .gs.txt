@@ -1,0 +1,231 @@
+// =======================================================
+// === THƯ VIỆN QUẢN LÝ VẬT TƯ (CORE LOGIC) - ZAPPS FIX ===
+// =======================================================
+
+// 1. CẤU HÌNH MẶC ĐỊNH
+var MATERIAL_DEFAULT_CONFIG = {
+  SHEET_DANHMUC: "DanhMucVatTu",
+  SHEET_QUANLY: "QuanLy",
+  SHEET_DB: "DB_VatTu",
+  SHEET_LOG: "Log_SuDung",
+  
+  // --- ZALO CONFIG (SỬ DỤNG ZAPPS.ME) ---
+  ZALO_ACTIVE: true,
+  // Token của bạn
+  ZALO_TOKEN: "1472414110897931790:YALWLszEPevqtYzELvUOZDCitiGBTUMpbWQGSLIKunykLyKgmpzQbFWsqtBPRlIf", 
+  // Base URL của Zapps
+  ZALO_API_URL: "https://bot-api.zapps.me/bot",
+  
+  DOC_TEMPLATE_ID: ""
+};
+
+var _globalConfig = {};
+
+function _initConfig(userConfig) {
+  _globalConfig = Object.assign({}, MATERIAL_DEFAULT_CONFIG, userConfig);
+  // Đảm bảo Token luôn lấy từ mặc định nếu vỏ bọc không truyền
+  if (!_globalConfig.ZALO_TOKEN) {
+    _globalConfig.ZALO_TOKEN = MATERIAL_DEFAULT_CONFIG.ZALO_TOKEN;
+  }
+}
+
+function getSidebarHtml(title) {
+  return HtmlService.createHtmlOutputFromFile('SidebarVT').setTitle(title).setWidth(400);
+}
+
+// --------------------------------------------------------------------------------
+// 2. HÀM GỬI ZALO (LOGIC CHUẨN TỪ CODE MẪU CỦA BẠN)
+// --------------------------------------------------------------------------------
+
+function _sendMessageZalo(userId, text) {
+  try {
+    // Cấu trúc URL: base_url + token + /sendMessage
+    var url = _globalConfig.ZALO_API_URL + _globalConfig.ZALO_TOKEN + "/sendMessage";
+    
+    var payload = {
+      "chat_id": userId, // Zapps dùng chat_id
+      "text": text
+    };
+    
+    var options = {
+      "method": "post",
+      "contentType": "application/json",
+      "payload": JSON.stringify(payload),
+      "muteHttpExceptions": true
+    };
+    
+    var response = UrlFetchApp.fetch(url, options);
+    console.log("Zalo Response (" + userId + "): " + response.getContentText());
+    return true;
+  } catch (e) {
+    console.error("Lỗi gửi Zalo: " + e.toString());
+    return false;
+  }
+}
+
+function _getZaloManagers() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(_globalConfig.SHEET_QUANLY);
+  if (!sheet) {
+    console.warn("Không tìm thấy sheet: " + _globalConfig.SHEET_QUANLY);
+    return [];
+  }
+  
+  // Lấy data từ dòng 2
+  var data = sheet.getDataRange().getValues();
+  var managers = [];
+  
+  for (var i = 1; i < data.length; i++) {
+    // Giả định ID Zalo nằm ở Cột C (index 2)
+    var uid = String(data[i][2]).trim(); 
+    if (uid && uid.length > 5) { 
+      managers.push(uid);
+    }
+  }
+  return managers;
+}
+
+// Thay thế đoạn cũ bằng đoạn này trong Lib_MaterialManager.gs
+
+function _sendZaloNotificationToManagers(toolName, toolID, toolCode, limit, used, type) {
+  if (!_globalConfig.ZALO_ACTIVE) return;
+  
+  var managers = _getZaloManagers();
+  if (managers.length === 0) return;
+  
+  var message = "";
+  
+  // 1. MẪU TIN NHẮN HẾT HẠN (Tối giản, Nghiêm túc)
+  if (type === "HẾT HẠN") {
+      var dateRange = getToolDateRange(toolID, _globalConfig);
+      var timeStr = "";
+      
+      if (dateRange.found) {
+        timeStr = Utilities.formatDate(new Date(dateRange.start), "GMT+7", "dd/MM") + 
+                  " - " + 
+                  Utilities.formatDate(new Date(dateRange.end), "GMT+7", "dd/MM/yyyy");
+      } else {
+        timeStr = "N/A";
+      }
+
+      message = "[THÔNG BÁO HẾT HẠN SỬ DỤNG]\n" +
+                "--------------------------------\n" +
+                "• Vật tư: " + toolName.toUpperCase() + "\n" +
+                "• Mã QL: " + toolID + "\n" +
+                "• Tình trạng: Đã dùng " + used + "/" + limit + "\n" +
+                "• Chu kỳ: " + timeStr + "\n" +
+                "--------------------------------\n" +
+                "LƯU Ý: Mã đã bị KHÓA. Vui lòng lập báo cáo và thay mới.";
+  } 
+  
+  // 2. MẪU TIN NHẮN CẢNH BÁO (Hàng ngày)
+  else {
+      var remain = limit - used;
+      message = "[CẢNH BÁO SẮP HẾT]\n" +
+                "--------------------------------\n" +
+                "• Vật tư: " + toolName + "\n" +
+                "• Mã QL: " + toolID + "\n" +
+                "• Hiện tại: " + used + "/" + limit + " (Còn lại: " + remain + ")\n" +
+                "--------------------------------\n" +
+                "Đề nghị bộ phận chuẩn bị phương án thay thế.";
+  }
+
+  // Gửi tin
+  for (var i = 0; i < managers.length; i++) {
+    _sendMessageZalo(managers[i], message);
+    Utilities.sleep(300);
+  }
+}
+
+// --------------------------------------------------------------------------------
+// 3. LOGIC CHÍNH & CÁC HÀM XỬ LÝ
+// --------------------------------------------------------------------------------
+
+function coreHandleEdit(e, config) {
+  _initConfig(config);
+  var r = e.range;
+  var s = r.getSheet();
+  if (s.getName() !== config.SHEET_SCHEDULE || r.getColumn() !== config.COL_VATTU) return;
+  var nv = e.value;
+  if (!nv) return;
+
+  var l = LockService.getScriptLock();
+  if (l.tryLock(2000)) {
+    try {
+      var ni = nv.split(',').map(i => i.trim()).filter(i => i !== '');
+      var ov = e.oldValue || "";
+      var oi = ov.split(',').map(i => i.trim()).filter(i => i !== '');
+      var ai = [];
+      for (var i = 0; i < ni.length; i++)
+        if (oi.indexOf(ni[i]) === -1) ai.push(ni[i]);
+      
+      // Xử lý từng mã
+      for (var j = 0; j < ai.length; j++) _writeLogAndUpdateDB(s, r.getRow(), ai[j], config);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      l.releaseLock();
+    }
+  }
+}
+
+function _writeLogAndUpdateDB(s, r, id, c) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var db = ss.getSheetByName(c.SHEET_DB);
+  if (!db) return;
+  var d = db.getDataRange().getValues();
+  var idx = -1, lim = 0, use = 0, nm = "", cd = "", st = "";
+
+  for (var i = 1; i < d.length; i++) {
+    if (String(d[i][0]).trim() === String(id).trim()) {
+      idx = i + 1; cd = d[i][1]; nm = d[i][2]; lim = parseInt(d[i][3]) || 0; use = parseInt(d[i][4]) || 0; st = String(d[i][5]);
+      break;
+    }
+  }
+
+  if (idx === -1) { ss.toast("⚠️ K tìm thấy: " + id); return; }
+
+  // Logic chặn
+  if ((lim > 0 && use >= lim) || st.includes("Hỏng")) {
+    ss.toast("⛔ " + nm + " HẾT/HỎNG!", "TỪ CHỐI");
+    var cl = s.getRange(r, c.COL_VATTU);
+    var v = cl.getValue();
+    var p = String(v).split(',').map(x => x.trim()).filter(x => x !== String(id).trim());
+    cl.setValue(p.join(', '));
+    return;
+  }
+
+  var nu = use + 1;
+  db.getRange(idx, 5).setValue(nu);
+
+  // Logic gửi Zalo khi Hết
+  if (lim > 0 && nu >= lim) {
+    db.getRange(idx, 6).setValue("🔴 Hết");
+    // Gọi hàm gửi tin
+    _sendZaloNotificationToManagers(nm, id, cd, lim, nu, "HẾT HẠN");
+  }
+
+  var lg = ss.getSheetByName(c.SHEET_LOG);
+  if (!lg) lg = ss.insertSheet(c.SHEET_LOG);
+  var g = function(k) { try { return s.getRange(r, k).getValue() || "" } catch (e) { return "" } };
+  lg.appendRow([new Date(), g(c.COL_MA_BN), g(c.COL_TEN_BN), g(c.COL_CHAN_DOAN), g(c.COL_PPPT), g(c.COL_PTV), id, nu, ""]);
+  ss.toast("✅ Ghi: " + id);
+}
+
+// --- CÁC HÀM SUPPORT (IMPORT, REPORT, SIDEBAR) - GIỮ NGUYÊN LOGIC CŨ ---
+function getSidebarData(config) { _initConfig(config); var ss = SpreadsheetApp.getActiveSpreadsheet(); var importList = _getToolNamesFromDanhMuc(); var expiredTools = [], aboutToExpire = [], inventoryTree = {}, brokenList = []; var dbSheet = ss.getSheetByName(config.SHEET_DB); if (dbSheet) { var data = dbSheet.getDataRange().getValues(); for (var i = 1; i < data.length; i++) { var tID = String(data[i][0]).trim(); var tName = String(data[i][2]).trim(); var limit = parseInt(data[i][3]) || 0; var used = parseInt(data[i][4]) || 0; var status = String(data[i][5]); var notifyStatus = String(data[i][7] || ""); if (tID && !status.includes("Hỏng")) { if (!inventoryTree[tName]) inventoryTree[tName] = []; inventoryTree[tName].push({ id: tID, used: used, limit: limit }); if (used < limit) brokenList.push({ id: tID, name: tName, display: tID + " | " + tName + " (" + used + "/" + limit + ")" }); if (limit > 0 && used >= limit) { if (notifyStatus === "") expiredTools.push({ id: tID, name: tName, used: used, limit: limit }); } else if (limit > 0 && used >= limit - 1) { aboutToExpire.push({ id: tID, name: tName, used: used, limit: limit, remaining: limit - used }); } } } } return { success: true, importList: importList, inventoryTree: inventoryTree, brokenList: brokenList, expiredTools: expiredTools, aboutToExpire: aboutToExpire }; }
+function coreGenerateReport(f,c){_initConfig(c);var ss=SpreadsheetApp.getActiveSpreadsheet();var lg=ss.getSheetByName(c.SHEET_LOG);var db=ss.getSheetByName(c.SHEET_DB);if(!lg||!db)return{success:false,msg:"Thiếu data"};var dt=db.getDataRange().getValues();var m={};var idrow={};for(var i=1;i<dt.length;i++)if(dt[i][0]){m[String(dt[i][0]).trim()]={c:dt[i][1],n:dt[i][2],l:parseInt(dt[i][3])||0};idrow[String(dt[i][0]).trim()]=i+1;}var lgs=lg.getDataRange().getValues();var st=new Date(f.startDate);st.setHours(0,0,0,0);var en=new Date(f.endDate);en.setHours(23,59,59,999);var tids=f.selectedIDs||[];var sid=f.specificID||"";var ftids=sid?[sid]:tids;var rows=[];for(var i=1;i<lgs.length;i++){var d=new Date(lgs[i][0]);if(isNaN(d.getTime()))continue;if(d>=st&&d<=en){var tid=String(lgs[i][6]).trim();if(ftids.indexOf(tid)===-1)continue;var inf=m[tid];var lim=inf?inf.l:0;var cu=parseInt(lgs[i][7])||0;var alt=(lim>0&&cu>=lim);rows.push({tid:tid,date:d,alt:alt,row:["",inf?inf.n:"",tid,inf?inf.c:"",lgs[i][2],lgs[i][1],lgs[i][3],lgs[i][4],lgs[i][5],Utilities.formatDate(d,Session.getScriptTimeZone(),"dd/MM HH:mm"),cu+"/"+lim]});}}if(rows.length===0)return{success:false,message:"K có dữ liệu"};var ts=Utilities.formatDate(new Date(),"GMT+7","dd/MM");for(var k=0;k<ftids.length;k++){var rid=idrow[ftids[k]];if(rid){var cl=parseInt(dt[rid-1][3])||0;var cu=parseInt(dt[rid-1][4])||0;if(cl>0&&cu>=cl)db.getRange(rid,8).setValue("🟢 Đã báo cáo ("+ts+")");}}rows.sort(function(a,b){return a.tid.localeCompare(b.tid)||a.date-b.date});var sn="Export_BaoCao";var rp=ss.getSheetByName(sn);if(rp)ss.deleteSheet(rp);rp=ss.insertSheet(sn);rp.getRange("A:K").setFontFamily("Lexend").setFontSize(10).setVerticalAlignment("middle");rp.getRange("A1").setValue(c.HOSPITAL_NAME).setFontWeight("bold");rp.getRange("A2").setValue(c.DEPT_NAME).setFontWeight("bold");rp.getRange("A4:K4").merge().setValue(sid?("CHI TIẾT: "+sid):"BẢNG KÊ SỬ DỤNG").setFontSize(14).setFontWeight("bold").setHorizontalAlignment("center");rp.getRange("A5:K5").merge().setValue("("+Utilities.formatDate(st,Session.getScriptTimeZone(),"dd/MM/yyyy")+" - "+Utilities.formatDate(en,Session.getScriptTimeZone(),"dd/MM/yyyy")+")").setHorizontalAlignment("center").setFontStyle("italic");rp.getRange(7,1,1,11).setValues([["STT","TÊN VẬT TƯ","MÃ QL","MÃ BC","TÊN BỆNH NHÂN","Mã HS","CHẨN ĐOÁN","PPPT","PTV","THỜI GIAN","GHI CHÚ"]]).setFontWeight("bold").setBackground("#455a64").setFontColor("white").setHorizontalAlignment("center").setBorder(true,true,true,true,true,true,"black",null);var da=rows.map(function(r,k){r.row[0]=k+1;return r.row});rp.getRange(8,1,da.length,11).setValues(da).setBorder(true,true,true,true,true,true,"#90a4ae",null);var ms=8,cid=rows[0].tid;for(var i=0;i<rows.length;i++){if(rows[i].alt)rp.getRange(8+i,1,1,11).setBackground("#ffebee").setFontColor("#d32f2f");var rid=(i<rows.length-1)?rows[i+1].tid:"END";if(rid!==cid){if((8+i+1)-ms>1){rp.getRange(ms,2,(8+i+1)-ms,1).merge().setVerticalAlignment("middle");rp.getRange(ms,3,(8+i+1)-ms,1).merge().setVerticalAlignment("middle");rp.getRange(ms,4,(8+i+1)-ms,1).merge().setVerticalAlignment("middle");}ms=8+i+1;cid=rid;}}var lr=rp.getLastRow()+3;rp.getRange(lr,1,1,3).merge().setValue("TRƯỞNG KHOA");rp.getRange(lr,4,1,3).merge().setValue("PHÒNG TCKT");rp.getRange(lr,7,1,2).merge().setValue("KHOA DƯỢC");rp.getRange(lr,9,1,3).merge().setValue("NGƯỜI LẬP");rp.getRange(lr,1,1,11).setFontWeight("bold").setHorizontalAlignment("center");rp.setColumnWidth(2,140);return{success:true,pdfUrl:"https://docs.google.com/spreadsheets/d/"+ss.getId()+"/export?format=pdf&gid="+rp.getSheetId()+"&size=A4&portrait=false&fitw=true&gridlines=true",excelUrl:"https://docs.google.com/spreadsheets/d/"+ss.getId()+"/export?format=xlsx&gid="+rp.getSheetId()};}
+function markToolHandled(id,c){_initConfig(c);var ss=SpreadsheetApp.getActiveSpreadsheet();var db=ss.getSheetByName(c.SHEET_DB);if(!db)return{success:false,msg:"Lỗi DB"};var d=db.getDataRange().getValues();var f=false,ts=Utilities.formatDate(new Date(),"GMT+7","dd/MM");for(var i=1;i<d.length;i++){if(String(d[i][0]).trim()===String(id).trim()){db.getRange(i+1,8).setValue("🟢 Đã xử lý ("+ts+")");f=true;break;}}return f?{success:true}:{success:false,message:"K tìm thấy ID"};}
+function coreImportTools(d,c){_initConfig(c);var ss=SpreadsheetApp.getActiveSpreadsheet();var db=ss.getSheetByName(c.SHEET_DB);if(!db){db=ss.insertSheet(c.SHEET_DB);db.appendRow(["Mã","Code","Tên","Limit","Used","Status","Date","Notify"]);}var ex=db.getDataRange().getValues();var max=0;var pre=d.name.trim();for(var i=0;i<ex.length;i++){if(ex[i][0]&&String(ex[i][0]).startsWith(pre)){var p=String(ex[i][0]).split('-');var s=parseInt(p[p.length-1]);if(!isNaN(s)&&s>max)max=s;}}var rs=[];for(var i=1;i<=parseInt(d.qty);i++){var n=(max+i).toString().padStart(3,'0');rs.push([pre+"-"+n,d.code,d.name,d.limit,0,"🟢 Sẵn sàng",new Date(),""]);}if(rs.length>0){db.getRange(db.getLastRow()+1,1,rs.length,8).setValues(rs);_addToDanhMucIfNotExists(d.name,d.code,d.limit);}return{success:true,message:"Đã nhập: "+pre+" (x"+d.qty+")"};}
+function reportBrokenTool(d,c){_initConfig(c);var ss=SpreadsheetApp.getActiveSpreadsheet();var db=ss.getSheetByName(c.SHEET_DB);if(!db)return{success:false,message:"Lỗi DB"};var dt=db.getDataRange().getValues();var f=false,nm="";for(var i=1;i<dt.length;i++){if(String(dt[i][0]).trim()===String(d.toolID).trim()){db.getRange(i+1,6).setValue("🔴 Hỏng/Lỗi ("+Utilities.formatDate(new Date(),"GMT+7","dd/MM")+")");nm=dt[i][2];f=true;break;}}if(!f)return{success:false,message:"K tìm thấy ID"};var u="";if(_globalConfig.DOC_TEMPLATE_ID){try{var t=DriveApp.getFileById(_globalConfig.DOC_TEMPLATE_ID);var cp=t.makeCopy("BB_"+d.toolID,t.getParents().next());var doc=DocumentApp.openById(cp.getId());var b=doc.getBody();var td=new Date();b.replaceText("{{NGAY_THANG}}",`ngày ${td.getDate()} tháng ${td.getMonth()+1} năm ${td.getFullYear()}`);b.replaceText("{{NGUOI_LAP}}",d.reporter);b.replaceText("{{NGUOI_CHUNG_KIEN}}",d.witness);b.replaceText("{{NGUOI_LIEN_QUAN}}",d.related||"");b.replaceText("{{NOI_DUNG}}",d.description);b.replaceText("{{TEN_VATTU}}",`${nm} (Mã: ${d.toolID})`);doc.saveAndClose();u=cp.getUrl();}catch(e){return{success:true,message:"Khóa OK, lỗi Doc: "+e.message};}}return{success:true,message:"Đã khóa & lập BB",docUrl:u};}
+function getToolDateRange(id,c){_initConfig(c);var ss=SpreadsheetApp.getActiveSpreadsheet();var lg=ss.getSheetByName(_globalConfig.SHEET_LOG);if(!lg)return{found:false};var d=lg.getDataRange().getValues();var mn=null,mx=null,f=false,sid=String(id).trim();for(var i=1;i<d.length;i++){if(String(d[i][6]).trim()===sid){var t=new Date(d[i][0]);if(!isNaN(t.getTime())){if(mn===null||t<mn)mn=t;if(mx===null||t>mx)mx=t;f=true;}}}if(!f)return{found:false};return{found:true,start:Utilities.formatDate(mn,"GMT+7","yyyy-MM-dd"),end:Utilities.formatDate(mx,"GMT+7","yyyy-MM-dd")};}
+function _getToolNamesFromDanhMuc(){var ss=SpreadsheetApp.getActiveSpreadsheet();var s=ss.getSheetByName(_globalConfig.SHEET_DANHMUC);var n=[];if(s){var d=s.getDataRange().getValues();for(var i=1;i<d.length;i++)if(d[i][1])n.push({name:d[i][1],code:d[i][2],limit:d[i][3]})}return n;}
+function _getToolInfoFromCatalog(n){var l=_getToolNamesFromDanhMuc();for(var i=0;i<l.length;i++)if(l[i].name===n)return l[i];return{code:"",limit:5};}
+function _addToDanhMucIfNotExists(n,c,l){if(!_getToolInfoFromCatalog(n).code){SpreadsheetApp.getActiveSpreadsheet().getSheetByName(_globalConfig.SHEET_DANHMUC).appendRow([0,n,c,l,"cái","",new Date()])}}
+function _getToolInfoFromDB(id,c){var ss=SpreadsheetApp.getActiveSpreadsheet();var s=ss.getSheetByName(c.SHEET_DB);var d=s.getDataRange().getValues();for(var i=1;i<d.length;i++)if(String(d[i][0])===String(id))return{id:d[i][0],code:d[i][1],name:d[i][2],limit:d[i][3],used:d[i][4]};return{id:id,name:"Unknown",limit:0,used:0};}
+function sendBulkNotifications(t,c){_initConfig(c);var d=getSidebarData(c);var l=t==="NEAR_EXPIRED"?d.aboutToExpire:d.expiredTools;for(var i=0;i<l.length;i++){var x=l[i];var inf=_getToolInfoFromDB(x.id,c);_sendZaloNotificationToManagers(inf.name,inf.id,inf.code,inf.limit,inf.used,t==="NEAR_EXPIRED"?"SẮP HẾT":"HẾT HẠN");}return{success:true};}
+function autoCheckAndSendZalo(c){sendBulkNotifications("NEAR_EXPIRED",c);}
+
+// Export cho file Code vỏ bọc dùng để test
+function TEST_SEND_ZALO_DIRECT(userId, text) { _initConfig({}); return _sendMessageZalo(userId, text); }
+function TEST_GET_ZALO_MANAGERS(config) { _initConfig(config); return _getZaloManagers(); }

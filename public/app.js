@@ -17,8 +17,8 @@ document.addEventListener('DOMContentLoaded', refreshIcons);
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   try { localStorage.setItem('pm_theme', theme); } catch { /* ignore */ }
-  document.querySelectorAll('.theme-toggle i').forEach((icon) => {
-    icon.setAttribute('data-lucide', theme === 'dark' ? 'sun' : 'moon');
+  document.querySelectorAll('.theme-toggle').forEach((btn) => {
+    btn.innerHTML = `<i data-lucide="${theme === 'dark' ? 'sun' : 'moon'}"></i>`;
   });
   refreshIcons();
 }
@@ -696,6 +696,46 @@ async function moModalChot(maBN, ngayMo, hoTen, hasAbnormal = false) {
   hienThongBao('chot-msg', '', '');
   kiemTraCanPassword();
 
+  // Load gợi ý vật tư
+  document.getElementById('chot-vattu-goiy').classList.add('hidden');
+  document.getElementById('chot-vattu-list').innerHTML = '<div style="font-size:12px; color:var(--text-secondary)"><i data-lucide="loader-2" class="spin"></i> Đang tìm gợi ý...</div>';
+  refreshIcons();
+  
+  try {
+    const resVT = await fetch(`/api/vat-tu/goi-y-chi-dinh?maBN=${encodeURIComponent(maBN)}&ngayMo=${encodeURIComponent(ngayMo)}`);
+    const dataVT = await resVT.json();
+    if (dataVT.success && dataVT.data && dataVT.data.length > 0) {
+      document.getElementById('chot-vattu-goiy').classList.remove('hidden');
+      let vtHtml = '';
+      dataVT.data.forEach(nhom => {
+        vtHtml += `<div style="font-weight:600; font-size:13px; margin: 10px 0 6px 0;">${nhom.tenVatTuYeuCau}:</div>`;
+        if (nhom.danhSachCay && nhom.danhSachCay.length > 0) {
+          nhom.danhSachCay.forEach((cay, idx) => {
+            // Tự động check cây đầu tiên (cây có daDung cao nhất vì BE đã sort)
+            const checkedStr = idx === 0 ? 'checked' : '';
+            vtHtml += `
+              <label class="vt-select-item">
+                <input type="checkbox" name="vattu-chon" value="${cay.maQL}" ${checkedStr}>
+                <div class="vt-select-info">
+                  <div class="vt-select-title">${cay.maQL}</div>
+                  <div class="vt-select-desc">Đã dùng: ${cay.daDung}/${cay.gioiHan} lần</div>
+                </div>
+              </label>
+            `;
+          });
+        } else {
+          vtHtml += `<div style="font-size:12px; color:var(--apple-red); margin-left:12px;">⚠ Không tìm thấy cây nào sẵn sàng.</div>`;
+        }
+      });
+      document.getElementById('chot-vattu-list').innerHTML = vtHtml;
+    } else {
+      document.getElementById('chot-vattu-list').innerHTML = '<div style="font-size:12px; color:var(--text-secondary); font-style:italic;">Không phát hiện chỉ định vật tư tiêu hao nào cho ca này.</div>';
+      document.getElementById('chot-vattu-goiy').classList.remove('hidden');
+    }
+  } catch (e) {
+    document.getElementById('chot-vattu-list').innerHTML = '<div style="font-size:12px; color:var(--apple-red);">Lỗi tải dữ liệu vật tư.</div>';
+  }
+
   document.getElementById('modal-chot').classList.remove('hidden');
 }
 
@@ -760,8 +800,10 @@ document.getElementById('btn-chot-xacnhan').addEventListener('click', async () =
       }
     }
 
-    // Nếu có chọn người xác nhận => thực hiện chốt
     if (nguoiXacNhan !== '') {
+      // Lấy danh sách vật tư đã chọn
+      const danhSachVatTuChon = Array.from(document.querySelectorAll('input[name="vattu-chon"]:checked')).map(cb => cb.value);
+
       const resChot = await fetch('/api/chot-vat-tu', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -770,7 +812,8 @@ document.getElementById('btn-chot-xacnhan').addEventListener('click', async () =
           ngayMo: _chotNgayMo,
           nguoiXacNhan,
           ghiChuChung,
-          passwordXacNhan: passwordXacNhan || undefined
+          passwordXacNhan: passwordXacNhan || undefined,
+          danhSachVatTuChon
         })
       });
       const dataChot = await resChot.json();
@@ -1036,4 +1079,162 @@ function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
+}
+// ============ TAB NAVIGATION ============
+if (document.getElementById('nav-dashboard')) {
+  document.getElementById('nav-dashboard').addEventListener('click', () => {
+    document.getElementById('nav-dashboard').classList.add('active');
+    document.getElementById('nav-vattu').classList.remove('active');
+    document.getElementById('view-dashboard').classList.remove('hidden');
+    document.getElementById('view-vattu').classList.add('hidden');
+    if (document.getElementById('view-upload')) document.getElementById('view-upload').classList.add('hidden');
+    loadDashboard();
+  });
+  
+  document.getElementById('nav-vattu').addEventListener('click', () => {
+    document.getElementById('nav-vattu').classList.add('active');
+    document.getElementById('nav-dashboard').classList.remove('active');
+    document.getElementById('view-vattu').classList.remove('hidden');
+    document.getElementById('view-dashboard').classList.add('hidden');
+    if (document.getElementById('view-upload')) document.getElementById('view-upload').classList.add('hidden');
+    loadVatTuTongQuan();
+    loadVatTuTonKho();
+  });
+}
+
+// ============ QUẢN LÝ VẬT TƯ TIÊU HAO ============
+async function loadVatTuTongQuan() {
+  const statsEl = document.getElementById('vattu-stats');
+  if (!statsEl) return;
+  statsEl.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px;"><i data-lucide="loader-2" class="spin"></i></div>';
+  refreshIcons();
+
+  try {
+    const res = await fetch('/api/vat-tu/tong-quan');
+    const data = await res.json();
+    if (!data.success) {
+      statsEl.innerHTML = `<div class="msg error">${data.message}</div>`;
+      return;
+    }
+
+    const d = data.data;
+    statsEl.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-title">Tổng dụng cụ</div>
+        <div class="stat-value">${d.tongDungCu}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Sẵn sàng</div>
+        <div class="stat-value green">${d.dangHoatDong}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Sắp hết</div>
+        <div class="stat-value orange">${d.sapHet}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Đã hết / Khóa</div>
+        <div class="stat-value red">${d.daHet}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">Hư hỏng</div>
+        <div class="stat-value red">${d.huHong}</div>
+      </div>
+    `;
+    
+    // Nếu có cảnh báo, có thể render thêm 1 khu vực alert ở đây.
+  } catch (err) {
+    statsEl.innerHTML = `<div class="msg error">Lỗi tải dữ liệu.</div>`;
+  }
+}
+
+async function loadVatTuTonKho() {
+  const listEl = document.getElementById('vattu-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="empty-state"><i data-lucide="loader-2" class="spin"></i> Đang tải danh sách tồn kho...</div>';
+  refreshIcons();
+
+  try {
+    const res = await fetch('/api/vat-tu/ton-kho');
+    const data = await res.json();
+    if (!data.success) {
+      listEl.innerHTML = `<div class="msg error">${data.message}</div>`;
+      return;
+    }
+
+    if (data.data.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">Chưa có dữ liệu tồn kho.</div>';
+      return;
+    }
+
+    let html = '';
+    data.data.forEach(nhom => {
+      html += `<div class="vattu-group">`;
+      html += `<div class="vattu-group-header">
+                 <div>${escapeHtml(nhom.tenVT)}</div>
+                 <div style="font-size:13px; color:var(--text-secondary)">SL: ${nhom.danhSach.length}</div>
+               </div>`;
+      
+      nhom.danhSach.forEach(cay => {
+        const percent = cay.gioiHan > 0 ? (cay.daDung / cay.gioiHan) * 100 : 0;
+        let pClass = '';
+        let tClass = '';
+        if (cay.trangThai.includes('Hỏng') || cay.trangThai.includes('Hết')) {
+          pClass = 'danger';
+          tClass = 'color: var(--apple-red);';
+        } else if (cay.conLai <= 2) {
+          pClass = 'warning';
+          tClass = 'color: var(--apple-orange);';
+        }
+        
+        html += `
+          <div class="vattu-item">
+            <div>
+              <div class="vt-name" style="${tClass}">${escapeHtml(cay.maQL)}</div>
+              <div class="vt-code">Trạng thái: ${escapeHtml(cay.trangThai)}</div>
+            </div>
+            <div>
+              <div style="font-size:12px; color:var(--text-secondary)">Còn lại</div>
+              <div style="font-weight:600">${cay.conLai}/${cay.gioiHan}</div>
+            </div>
+            <div>
+              <div class="progress-wrap">
+                <div class="progress-bar ${pClass}" style="width: ${percent}%"></div>
+              </div>
+              <div class="progress-text">Đã dùng ${cay.daDung}</div>
+            </div>
+            <div style="text-align:right">
+              ${cay.trangThai.includes('Sẵn sàng') ? `<button class="btn-ghost small" onclick="baoHongVatTu('${cay.maQL}')" title="Báo hỏng"><i data-lucide="alert-triangle" style="width:14px; height:14px; color:var(--apple-orange)"></i></button>` : ''}
+            </div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+    });
+    listEl.innerHTML = html;
+    refreshIcons();
+  } catch (err) {
+    listEl.innerHTML = `<div class="msg error">Lỗi tải dữ liệu tồn kho.</div>`;
+  }
+}
+
+// Hàm stub cho Báo hỏng (có thể implement gọi API sau)
+window.baoHongVatTu = async function(maQL) {
+  if(!confirm(`Xác nhận báo hỏng mã: ${maQL}?`)) return;
+  try {
+    const res = await fetch('/api/vat-tu/bao-hong', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ maQL, lyDo: 'Báo hỏng từ giao diện' })
+    });
+    const data = await res.json();
+    if(data.success) {
+      alert("Đã ghi nhận hỏng!");
+      loadVatTuTongQuan();
+      loadVatTuTonKho();
+    } else {
+      alert(data.message);
+    }
+  } catch (e) {
+    alert("Lỗi: " + e.message);
+  }
 }

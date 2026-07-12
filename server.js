@@ -9,6 +9,7 @@ const { timCacCaTheoPID, timCaTheoPidHoacTen } = require('./src/matching');
 const { layDanhSachTuKhoaMacTien, kiemTraMacTien, layDuLieuCaCu, ghiDuLieuCa, layChiTietCa, chuanHoaTen } = require('./src/dataLog');
 const { dangNhap, dangKy, duyetTaiKhoan, khoaTaiKhoan, xacThucCheo, layDanhSachNhanSu, layDanhSachUsers } = require('./src/auth');
 const { capNhatVung } = require('./src/sheetsClient');
+const vatTu = require('./src/vatTu');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -311,7 +312,7 @@ app.get('/api/nhan-su', yeuCauDangNhap, async (req, res) => {
 // ============ CHỐT VẬT TƯ ============
 app.post('/api/chot-vat-tu', yeuCauDangNhap, async (req, res) => {
   try {
-    const { maBN, ngayMo, nguoiXacNhan, ghiChuChung, passwordXacNhan } = req.body;
+    const { maBN, ngayMo, nguoiXacNhan, ghiChuChung, passwordXacNhan, danhSachVatTuChon } = req.body;
     if (!maBN || !ngayMo || !nguoiXacNhan) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin chốt.' });
     }
@@ -338,9 +339,11 @@ app.post('/api/chot-vat-tu', yeuCauDangNhap, async (req, res) => {
     const { docSheet } = require('./src/sheetsClient');
     const summaryData = await docSheet('Case_Summary');
     let dongTimThay = -1;
+    let infoCa = {}; // Lấy thêm infoCa để log
     for (let i = 1; i < summaryData.length; i++) {
       if (String(summaryData[i][0] || '').trim() === maBN && String(summaryData[i][2] || '').trim() === ngayMo) {
         dongTimThay = i + 1;
+        infoCa = { hoTenBN: summaryData[i][1] };
         break;
       }
     }
@@ -355,10 +358,66 @@ app.post('/api/chot-vat-tu', yeuCauDangNhap, async (req, res) => {
       ['Da chot', ghiChuChung || '', nguoiXacNhan, thoiGian]
     ]);
 
+    // Hook: Xử lý vật tư tiêu hao nếu có chọn
+    if (danhSachVatTuChon && danhSachVatTuChon.length > 0) {
+      await vatTu.xuLyKhiChot(maBN, ngayMo, infoCa, danhSachVatTuChon);
+    }
+
     res.json({ success: true, message: `Đã chốt vật tư. Người xác nhận: ${nguoiXacNhan}` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+  }
+});
+
+// ============ API VẬT TƯ TIÊU HAO ============
+
+app.get('/api/vat-tu/tong-quan', yeuCauDangNhap, async (req, res) => {
+  try {
+    const data = await vatTu.layTongQuan();
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/vat-tu/ton-kho', yeuCauDangNhap, async (req, res) => {
+  try {
+    const data = await vatTu.layTonKho();
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/vat-tu/goi-y-chi-dinh', yeuCauDangNhap, async (req, res) => {
+  try {
+    const { maBN, ngayMo } = req.query;
+    if (!maBN || !ngayMo) return res.status(400).json({ success: false, message: 'Thiếu maBN hoặc ngayMo' });
+    const data = await vatTu.goiYChiDinh(maBN, ngayMo);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/vat-tu/nhap', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
+  try {
+    const result = await vatTu.nhapVatTuMoi(req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/vat-tu/bao-hong', yeuCauDangNhap, async (req, res) => {
+  try {
+    const { maQL, lyDo } = req.body;
+    if (!maQL) return res.status(400).json({ success: false, message: 'Thiếu mã quản lý' });
+    const result = await vatTu.baoHongVatTu(maQL, lyDo || '');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
