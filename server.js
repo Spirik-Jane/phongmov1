@@ -54,6 +54,17 @@ function yeuCauDangNhap(req, res, next) {
   next();
 }
 
+// Middleware kiểm tra vai trò được phép truy cập Vật tư
+function yeuCauQuyenVatTu(req, res, next) {
+  const vaiTro = req.currentUser.vaiTro;
+  // Khoa Trại chỉ xem HIS, không được truy cập Vật tư
+  // NV PM, Phụ trách, Admin... thì được
+  if (vaiTro === 'Khoa Trai') {
+    return res.status(403).json({ success: false, message: 'Bạn thuộc Khoa Trại, không có quyền truy cập Vật tư phòng mổ.' });
+  }
+  next();
+}
+
 function yeuCauAdmin(req, res, next) {
   if (req.currentUser.vaiTro !== 'Admin') {
     return res.status(403).json({ success: false, message: 'Bạn không có quyền quản trị.' });
@@ -372,7 +383,7 @@ app.post('/api/chot-vat-tu', yeuCauDangNhap, async (req, res) => {
 
 // ============ API VẬT TƯ TIÊU HAO ============
 
-app.get('/api/vat-tu/tong-quan', yeuCauDangNhap, async (req, res) => {
+app.get('/api/vat-tu/tong-quan', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
   try {
     const data = await vatTu.layTongQuan();
     res.json({ success: true, data });
@@ -381,7 +392,7 @@ app.get('/api/vat-tu/tong-quan', yeuCauDangNhap, async (req, res) => {
   }
 });
 
-app.get('/api/vat-tu/ton-kho', yeuCauDangNhap, async (req, res) => {
+app.get('/api/vat-tu/ton-kho', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
   try {
     const data = await vatTu.layTonKho();
     res.json({ success: true, data });
@@ -390,7 +401,7 @@ app.get('/api/vat-tu/ton-kho', yeuCauDangNhap, async (req, res) => {
   }
 });
 
-app.get('/api/vat-tu/goi-y-chi-dinh', yeuCauDangNhap, async (req, res) => {
+app.get('/api/vat-tu/goi-y-chi-dinh', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
   try {
     const { maBN, ngayMo } = req.query;
     if (!maBN || !ngayMo) return res.status(400).json({ success: false, message: 'Thiếu maBN hoặc ngayMo' });
@@ -401,21 +412,142 @@ app.get('/api/vat-tu/goi-y-chi-dinh', yeuCauDangNhap, async (req, res) => {
   }
 });
 
-app.post('/api/vat-tu/nhap', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
+app.post('/api/vat-tu/nhap', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
   try {
-    const result = await vatTu.nhapVatTuMoi(req.body);
+    const { tenVatTu, maKeToan, gioiHan, soLuong, nguoiNhap, matKhauXacNhan } = req.body;
+    let tenNguoiNhap = req.currentUser.hoTen;
+
+    // Nếu chọn người khác nhập
+    if (nguoiNhap && nguoiNhap !== req.currentUser.username) {
+      // Xác thực người được chọn
+      const kqXacThuc = await xacThucCheo(nguoiNhap, matKhauXacNhan || '');
+      if (!kqXacThuc.success) {
+        return res.status(403).json({ success: false, message: 'Xác thực chéo thất bại: ' + kqXacThuc.message });
+      }
+      tenNguoiNhap = kqXacThuc.hoTen;
+    }
+
+    const result = await vatTu.nhapVatTuMoi({
+      code: maKeToan,
+      tenVatTu,
+      soLuong,
+      gioiHan,
+      nguoiNhap: tenNguoiNhap
+    });
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-app.post('/api/vat-tu/bao-hong', yeuCauDangNhap, async (req, res) => {
+app.post('/api/vat-tu/bao-hong', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
   try {
     const { maQL, lyDo } = req.body;
     if (!maQL) return res.status(400).json({ success: false, message: 'Thiếu mã quản lý' });
     const result = await vatTu.baoHongVatTu(maQL, lyDo || '');
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/vat-tu/bao-cao', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
+  try {
+    const { maQL } = req.query;
+    if (!maQL) return res.status(400).json({ success: false, message: 'Thiếu mã quản lý (maQL)' });
+    const data = await vatTu.layLichSuVatTu(maQL);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+  }
+});
+
+// ============ XUẤT BÁO CÁO QUA GOOGLE SHEETS (GIỐNG GAS CŨ) ============
+app.get('/api/vat-tu/export', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
+  const { maQL, type } = req.query;
+  if (!maQL || !type) return res.status(400).json({ success: false, message: 'Thiếu maQL hoặc type' });
+
+  let sheetIdToDelete = null;
+  try {
+    // 1. Tạo sheet tạm + format đẹp trên Google Sheets
+    const exportResult = await vatTu.xuatBaoCao(maQL);
+    sheetIdToDelete = exportResult.sheetId;
+
+    const exportUrl = type === 'excel' ? exportResult.excelUrl : exportResult.pdfUrl;
+    const ext = type === 'excel' ? 'xlsx' : 'pdf';
+    const mimeType = type === 'excel'
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'application/pdf';
+
+    // 2. Fetch file từ Google bằng Service Account token
+    const { google } = require('googleapis');
+    const KEY_FILE = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || './credentials/service-account.json';
+    const auth = new google.auth.GoogleAuth({
+      keyFile: KEY_FILE,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly']
+    });
+    const authClient = await auth.getClient();
+    const tokenResponse = await authClient.getAccessToken();
+    const accessToken = tokenResponse.token || tokenResponse.res?.data?.access_token;
+
+    const googleRes = await fetch(exportUrl, {
+      headers: { 'Authorization': 'Bearer ' + accessToken }
+    });
+
+    if (!googleRes.ok) {
+      throw new Error('Google trả lỗi: ' + googleRes.status + ' ' + googleRes.statusText);
+    }
+
+    // 3. Stream file về client
+    res.setHeader('Content-Type', mimeType);
+    const safeMaQL = maQL.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9-]/g, "_");
+    res.setHeader('Content-Disposition', `attachment; filename="BaoCao_${safeMaQL}.${ext}"`);
+
+    // Pipe response body
+    if (googleRes.body && typeof googleRes.body.pipe === 'function') {
+      googleRes.body.pipe(res);
+      googleRes.body.on('end', () => {
+        // 4. Xóa sheet tạm sau khi stream xong
+        vatTu.xoaSheetTam(sheetIdToDelete).catch(e => console.error('Cleanup error:', e));
+      });
+    } else {
+      // Fallback: dùng arrayBuffer
+      const buffer = Buffer.from(await googleRes.arrayBuffer());
+      res.send(buffer);
+      vatTu.xoaSheetTam(sheetIdToDelete).catch(e => console.error('Cleanup error:', e));
+    }
+  } catch (err) {
+    console.error('Export error:', err);
+    // Nếu lỗi, vẫn cố xóa sheet tạm
+    if (sheetIdToDelete) {
+      vatTu.xoaSheetTam(sheetIdToDelete).catch(() => { });
+    }
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Lỗi xuất báo cáo: ' + err.message });
+    }
+  }
+});
+
+app.get('/api/vat-tu/danh-muc', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
+  try {
+    const data = await vatTu.layDanhMucVatTu();
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+  }
+});
+
+// Endpoint cho list nhân sự PM (dùng cho xác thực chéo + dropdown nhập kho)
+app.get('/api/users', yeuCauDangNhap, async (req, res) => {
+  try {
+    // Chỉ trả về users có role không phải Khoa Trai để họ chọn
+    const users = await layDanhSachUsers();
+    const activeUsers = users
+      .filter(u => u.trangThai === 'Active' && u.vaiTro !== 'Khoa Trai')
+      .map(u => ({ username: u.username, hoTen: u.hoTen, vaiTro: u.vaiTro }));
+    res.json({ success: true, data: activeUsers });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

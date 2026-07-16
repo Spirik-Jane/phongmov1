@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Quản lý Vật tư & Ca mổ - Khoa PT-GMHS | BV Đa khoa Gia Định</title>
+<title>Quản lý Thuốc & Vật Tư Tiêu Hao - Khoa PT-GMHS | BVĐK Gia Định</title>
 <!-- Google Fonts: Inter (Premium Apple-like alternative) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -131,8 +131,8 @@
             <div class="brand-sub" style="font-size:12px;">Khoa PT-Gây Mê Hồi Sức</div>
           </div>
           <div class="header-nav" style="margin-left: 10px; display: flex; gap: 5px;">
-            <button id="nav-dashboard" class="btn-nav active"><i data-lucide="list-checks"></i> Quản lý Ca mổ</button>
-            <button id="nav-vattu" class="btn-nav"><i data-lucide="package"></i> Quản lý Kho Vật tư</button>
+            <button id="nav-dashboard" class="btn-nav active"><i data-lucide="list-checks"></i> Dữ liệu HIS</button>
+            <button id="nav-vattu" class="btn-nav"><i data-lucide="package"></i> Quản lý Thuốc & Vật Tư</button>
           </div>
         </div>
         <div class="header-right user-info" style="display:flex; align-items:center; gap:10px;">
@@ -168,7 +168,7 @@
         <!-- MÀN HÌNH KHO VẬT TƯ TIÊU HAO -->
         <div id="view-vattu" class="view hidden">
           <div class="dashboard-header">
-            <h2><i data-lucide="package"></i> Quản lý Vật tư Tiêu hao</h2>
+            <h2><i data-lucide="package"></i> Quản lý Thuốc & Vật Tư</h2>
             <div class="dash-controls">
               <button id="btn-nhap-vattu" class="btn-primary"><i data-lucide="plus"></i> Nhập kho</button>
             </div>
@@ -299,6 +299,113 @@
       <div class="modal-body" style="overflow-y:auto; flex:1; padding:20px;">
         <div style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">Mã BN: <b id="ct-mabn"></b></div>
         <div id="ct-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL NHẬP KHO VẬT TƯ -->
+  <div id="modal-nhap-kho" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3><i data-lucide="plus-circle"></i> Nhập Kho Vật Tư</h3>
+        <button id="btn-nk-close" class="btn-icon"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Tên vật tư</label>
+          <select id="nk-ten" class="apple-input full">
+            <option value="">-- Đang tải danh mục... --</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <div class="form-group" style="flex:1">
+            <label>Mã Kế Toán (Mã BC)</label>
+            <input type="text" id="nk-mabc" class="apple-input full" placeholder="VD: H12345">
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>Giới hạn sử dụng</label>
+            <input type="number" id="nk-gioihan" class="apple-input full" placeholder="VD: 5" value="5">
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; margin-bottom: 12px;">
+          <div class="form-group" style="flex:1; margin-bottom:0;">
+            <label>Người nhập kho</label>
+            <select id="nk-nguoinhap" class="apple-input full">
+              <option value="">-- Chọn nhân viên --</option>
+            </select>
+          </div>
+          <div class="form-group" id="nk-mk-group" style="flex:1; margin-bottom:0; display:none;">
+            <label>Mật khẩu xác nhận</label>
+            <input type="password" id="nk-matkhau" class="apple-input full" placeholder="Nhập mật khẩu">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Số lượng nhập (cây)</label>
+          <input type="number" id="nk-soluong" class="apple-input full" placeholder="VD: 2" value="1">
+        </div>
+        <div id="nk-msg" class="msg"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-nk-huy" class="btn-ghost">Hủy</button>
+        <button id="btn-nk-xacnhan" class="btn-primary"><i data-lucide="save"></i> Lưu & Nhập</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL BÁO HỎNG -->
+  <div id="modal-bao-hong" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3 style="color: var(--apple-red);"><i data-lucide="alert-triangle"></i> Báo Hỏng Vật Tư</h3>
+        <button id="btn-bh-close" class="btn-icon"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div id="bh-msg" class="msg"></div>
+        <input type="hidden" id="bh-tenvt" value="">
+        <input type="hidden" id="bh-mabc" value="">
+        <div class="form-group">
+          <label>Mã Vật Tư</label>
+          <input type="text" id="bh-maql" class="apple-input full" disabled>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <div class="form-group" style="flex:1;">
+            <label>Người lập phiếu</label>
+            <input type="text" id="bh-nguoilap" class="apple-input full" placeholder="VD: Nguyễn Văn A">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label>Người chứng kiến</label>
+            <input type="text" id="bh-nguoichungkien" class="apple-input full" placeholder="VD: Trần Văn B">
+          </div>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <div class="form-group" style="flex:1;">
+            <label>Khoa / Phòng</label>
+            <input type="text" id="bh-khoaphong" class="apple-input full" placeholder="VD: Khoa Gây mê hồi sức">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label>Đề nghị</label>
+            <select id="bh-denghi" class="apple-input full">
+              <option value="Thay thế">Thay thế</option>
+              <option value="Không thay thế">Không thay thế</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Tình trạng chi tiết</label>
+          <textarea id="bh-tinhtrang" class="apple-input full" placeholder="Mô tả tình trạng hư hỏng..." rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Nguyên nhân hư hỏng</label>
+          <textarea id="bh-nguyennhan" class="apple-input full" placeholder="Lý do/nguyên nhân..." rows="2"></textarea>
+        </div>
+        <div id="bh-msg" class="msg"></div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button id="btn-bh-in" class="btn-ghost hidden" style="color: var(--primary-color); border: 1px solid var(--primary-color);" onclick="inBienBanHong()"><i data-lucide="printer"></i> Tải & In Phiếu Báo Hỏng</button>
+        <div>
+          <button id="btn-bh-huy" class="btn-ghost">Hủy</button>
+          <button id="btn-bh-xacnhan" class="btn-primary" style="background: var(--apple-red);"><i data-lucide="alert-circle"></i> Ghi Nhận Hỏng</button>
+        </div>
       </div>
     </div>
   </div>
