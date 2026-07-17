@@ -139,6 +139,7 @@
           <button id="btn-theme-toggle" class="theme-toggle" title="Chuyển giao diện Sáng/Tối"><i data-lucide="moon"></i></button>
           <div class="avatar"><i data-lucide="user"></i></div>
           <span id="user-display"></span>
+          <button id="btn-profile" class="btn-icon" title="Hồ sơ cá nhân"><i data-lucide="user-pen"></i></button>
           <button id="btn-admin" class="btn-icon" title="Quản trị"><i data-lucide="settings"></i></button>
           <button id="btn-logout" class="btn-icon text-danger" title="Đăng xuất"><i data-lucide="log-out"></i></button>
         </div>
@@ -153,6 +154,10 @@
               <div class="input-with-icon">
                 <i data-lucide="calendar-days"></i>
                 <input type="date" id="dash-date" class="apple-input">
+              </div>
+              <div class="input-with-icon">
+                <i data-lucide="search"></i>
+                <input type="text" id="his-search" class="apple-input" placeholder="Tìm PID hoặc tên BN...">
               </div>
               <button id="btn-show-upload" class="btn-primary"><i data-lucide="upload-cloud"></i> Upload File HIS</button>
             </div>
@@ -406,6 +411,76 @@
           <button id="btn-bh-huy" class="btn-ghost">Hủy</button>
           <button id="btn-bh-xacnhan" class="btn-primary" style="background: var(--apple-red);"><i data-lucide="alert-circle"></i> Ghi Nhận Hỏng</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL HỒ SƠ CÁ NHÂN -->
+  <div id="modal-profile" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3><i data-lucide="user-pen"></i> Hồ Sơ Cá Nhân</h3>
+        <button id="btn-profile-close" class="btn-icon"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Họ tên</label>
+          <input type="text" id="profile-hoten" class="apple-input full" placeholder="Họ và tên đầy đủ">
+        </div>
+        <div class="form-group">
+          <label>Khoa / Phòng</label>
+          <input type="text" id="profile-khoa" class="apple-input full" placeholder="Ví dụ: Phòng mổ">
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="profile-email" class="apple-input full" placeholder="email@bvdkgiadinh.com">
+        </div>
+        <div class="form-group">
+          <label>Mật khẩu mới <span style="font-weight:400; color:var(--text-secondary); font-size:12px;">(để trống nếu không đổi)</span></label>
+          <input type="password" id="profile-newpass" class="apple-input full" placeholder="••••••••">
+        </div>
+        <div id="profile-msg" class="msg"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-profile-huy" class="btn-ghost">Hủy</button>
+        <button id="btn-profile-save" class="btn-primary"><i data-lucide="save"></i> Lưu thay đổi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL GHI CHÚ CA MỔ -->
+  <div id="modal-note" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3><i data-lucide="message-square-plus"></i> Ghi Chú Ca Mổ</h3>
+        <button id="btn-note-close" class="btn-icon"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="note-mabn">
+        <input type="hidden" id="note-ngaymo">
+        <div style="display:flex; gap:10px;">
+          <div class="form-group" style="flex:1;">
+            <label>Người ghi chú</label>
+            <select id="note-nguoighi" class="apple-input full"></select>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label>Khoa / Phòng</label>
+            <input type="text" id="note-khoa" class="apple-input full" placeholder="Tên khoa">
+          </div>
+        </div>
+        <div id="note-pass-wrap" class="form-group hidden">
+          <label>Mật khẩu xác nhận (người được chọn)</label>
+          <input type="password" id="note-password" class="apple-input full" placeholder="••••••••">
+        </div>
+        <div class="form-group">
+          <label>Nội dung ghi chú</label>
+          <textarea id="note-content" class="apple-input full" rows="4" placeholder="Nhập ghi chú, câu hỏi hoặc phản hồi cho Phòng Mổ..."></textarea>
+        </div>
+        <div id="note-msg" class="msg"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-note-huy" class="btn-ghost">Hủy</button>
+        <button id="btn-note-save" class="btn-primary"><i data-lucide="send"></i> Ghi Nhận</button>
       </div>
     </div>
   </div>

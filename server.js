@@ -11,6 +11,48 @@ const { dangNhap, dangKy, duyetTaiKhoan, khoaTaiKhoan, xacThucCheo, layDanhSachN
 const { capNhatVung } = require('./src/sheetsClient');
 const vatTu = require('./src/vatTu');
 
+// ============ EMAIL (NODEMAILER) ============
+let nodemailer;
+try { nodemailer = require('nodemailer'); } catch(e) { nodemailer = null; }
+
+async function guiEmailDuyetTaiKhoan(user) {
+  if (!nodemailer) { console.log('[Email] Nodemailer chưa cài đặt, bỏ qua gửi email.'); return; }
+  if (!process.env.EMAIL_PASS) { console.log('[Email] EMAIL_PASS chưa cấu hình trong .env, bỏ qua.'); return; }
+  if (!user.email) { console.log('[Email] User chưa có email, bỏ qua.'); return; }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.EMAIL_PORT || '587'),
+    secure: false,
+    auth: { user: 'gaymehoisuc@bvdkgiadinh.com', pass: process.env.EMAIL_PASS }
+  });
+
+  const vaiTroLabel = user.vaiTro === 'NV_PM' ? 'Nhân viên Phòng Mổ' : 'Nhân viên Khoa/Trại';
+  const huongDan = user.vaiTro === 'NV_PM'
+    ? `Bạn có quyền truy cập vào 2 chức năng:\n\n1. **Dữ liệu HIS**: Xem lịch mổ, upload file HIS, chốt vật tư cho từng ca mổ, ghi chú liên lạc với khoa trại.\n2. **Quản lý Thuốc & Vật Tư**: Theo dõi tồn kho, nhập kho, báo hỏng và xuất báo cáo vật tư tiêu hao.`
+    : `Bạn có quyền truy cập vào chức năng:\n\n1. **Dữ liệu HIS**: Xem lịch mổ theo ngày, tìm kiếm theo PID hoặc tên bệnh nhân, kiểm tra trạng thái chốt vật tư và ghi chú cho Phòng Mổ.`;
+
+  await transporter.sendMail({
+    from: `"Khoa PT-Gây Mê Hồi Sức - BVĐK Gia Định" <gaymehoisuc@bvdkgiadinh.com>`,
+    to: user.email,
+    subject: '[PM System] Tài khoản của bạn đã được kích hoạt',
+    text: [
+      `Kính gửi ${user.hoTen},`,
+      ``,
+      `Tài khoản PM System của bạn (username: ${user.username}) với vai trò [${vaiTroLabel}] đã được phê duyệt và kích hoạt.`,
+      ``,
+      huongDan,
+      ``,
+      `Truy cập hệ thống tại địa chỉ nội bộ do bộ phận IT cung cấp.`,
+      ``,
+      `Trân trọng,`,
+      `Khoa Phẫu Thuật - Gây Mê Hồi Sức`,
+      `Bệnh Viện Đa Khoa Gia Định`
+    ].join('\n')
+  });
+  console.log(`[Email] Đã gửi email kích hoạt tới ${user.email}`);
+}
+
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -59,7 +101,7 @@ function yeuCauQuyenVatTu(req, res, next) {
   const vaiTro = req.currentUser.vaiTro;
   // Khoa Trại chỉ xem HIS, không được truy cập Vật tư
   // NV PM, Phụ trách, Admin... thì được
-  if (vaiTro === 'Khoa Trai') {
+  if (vaiTro === 'NV_KHOA_TRAI') {
     return res.status(403).json({ success: false, message: 'Bạn thuộc Khoa Trại, không có quyền truy cập Vật tư phòng mổ.' });
   }
   next();
@@ -294,7 +336,12 @@ app.get('/api/admin/users', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
 
 app.post('/api/admin/duyet', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
   try {
+    const users = await layDanhSachUsers();
+    const targetUser = users.find(u => u.username === req.body.username);
     const result = await duyetTaiKhoan(req.body.username);
+    if (result.success && targetUser && targetUser.email) {
+      guiEmailDuyetTaiKhoan(targetUser).catch(e => console.error('Email error:', e.message));
+    }
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -307,6 +354,78 @@ app.post('/api/admin/khoa', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============ USER PROFILE ============
+app.put('/api/users/profile', yeuCauDangNhap, async (req, res) => {
+  try {
+    const { hoTen, khoaPhong, email, newPassword } = req.body;
+    const fs = require('fs').promises;
+    const dataPath = require('path').join(__dirname, 'data.json');
+    const raw = JSON.parse(await fs.readFile(dataPath, 'utf8'));
+    const users = raw.users || [];
+    const idx = users.findIndex(u => u.username === req.currentUser.username);
+    if (idx === -1) return res.json({ success: false, message: 'Không tìm thấy tài khoản.' });
+    if (hoTen) users[idx].hoTen = hoTen;
+    if (khoaPhong) users[idx].khoaPhong = khoaPhong;
+    if (email) users[idx].email = email;
+    if (newPassword) {
+      const { hashPassword } = require('./src/auth');
+      users[idx].password = await hashPassword(newPassword);
+    }
+    raw.users = users;
+    await fs.writeFile(dataPath, JSON.stringify(raw, null, 2), 'utf8');
+    // Cập nhật session
+    const session = laySession(req);
+    if (session) {
+      if (hoTen) session.hoTen = hoTen;
+      if (khoaPhong) session.khoaPhong = khoaPhong;
+    }
+    res.json({ success: true, message: 'Đã cập nhật thông tin.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Lỗi: ' + err.message });
+  }
+});
+
+// ============ GHI CHÚ CA MỔ ============
+app.put('/api/his/note', yeuCauDangNhap, async (req, res) => {
+  try {
+    const { maBN, ngayMo, ghiChu, nguoiGhi, khoaGhi, passwordXacNhan } = req.body;
+    if (!maBN || !ngayMo || !ghiChu || !nguoiGhi) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin ghi chú.' });
+    }
+    // Xác thực chéo
+    const currentUser = req.currentUser;
+    if (currentUser.hoTen !== nguoiGhi) {
+      if (!passwordXacNhan) {
+        return res.json({ success: false, needPassword: true, message: 'Cần mật khẩu của người ghi chú.' });
+      }
+      const users = await layDanhSachUsers();
+      const targetUser = users.find(u => u.hoTen === nguoiGhi && u.trangThai === 'Active');
+      if (!targetUser) return res.json({ success: false, message: 'Người ghi chú không có tài khoản Active.' });
+      const xacThuc = await xacThucCheo(targetUser.username, passwordXacNhan);
+      if (!xacThuc.success) return res.json({ success: false, message: 'Mật khẩu xác nhận sai.' });
+    }
+    // Ghi vào Google Sheets (cột H = Note)
+    const { docSheet, capNhatVung } = require('./src/sheetsClient');
+    const summaryData = await docSheet('Case_Summary');
+    let dongTimThay = -1;
+    for (let i = 1; i < summaryData.length; i++) {
+      if (String(summaryData[i][0] || '').trim() === maBN && String(summaryData[i][2] || '').trim() === ngayMo) {
+        dongTimThay = i + 1;
+        break;
+      }
+    }
+    if (dongTimThay === -1) return res.json({ success: false, message: 'Không tìm thấy ca mổ.' });
+    const thoiGian = new Date().toLocaleString('vi-VN');
+    const noteText = `[${thoiGian}] ${nguoiGhi} (${khoaGhi}): ${ghiChu}`;
+    await capNhatVung(`Case_Summary!H${dongTimThay}`, [[noteText]]);
+    res.json({ success: true, note: noteText });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Lỗi: ' + err.message });
   }
 });
 

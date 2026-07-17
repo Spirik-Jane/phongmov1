@@ -167,5 +167,6 @@ module.exports = {
   xacThucCheo,
   layDanhSachNhanSu,
   layDanhSachUsers,
-  verifyPassword
+  verifyPassword,
+  hashPassword
 };

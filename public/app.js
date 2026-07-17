@@ -95,7 +95,8 @@ function hienThiManHinhChinh() {
   // Phân quyền nút Upload và Tab Vật tư
   const btnUpload = document.getElementById('btn-show-upload');
   const navVattu = document.getElementById('nav-vattu');
-  if (_currentUser.vaiTro === 'Khoa Trai') {
+  const isKhoaTrai = _currentUser.vaiTro === 'NV_KHOA_TRAI';
+  if (isKhoaTrai) {
     if (btnUpload) btnUpload.classList.add('hidden');
     if (navVattu) navVattu.classList.add('hidden');
   } else {
@@ -315,10 +316,13 @@ function renderDashboard(data) {
         <div class="status-row">
           <div class="status-badge ${statusClass}">${escapeHtml(statusText)}</div>
           ${canChot ? `<button class="btn-chot-mini" data-mabn="${escapeHtml(ca.maBN)}" data-ngaymo="${escapeHtml(ca.thoiGianMo)}" data-hoten="${escapeHtml(ca.hoTen)}">Chốt</button>` : ''}
+          <button class="btn-ghost small" style="margin-top:4px;" onclick="moModalNote('${escapeHtml(ca.maBN)}','${escapeHtml(ca.thoiGianMo)}')"><i data-lucide="message-square-plus" style="width:14px;height:14px;"></i> Ghi chú</button>
         </div>
         ${ca.nguoiXacNhan ? `<div class="finalizer-info">👤 <b>${escapeHtml(ca.nguoiXacNhan)}</b><br/>${escapeHtml(ca.lastUpdated)}</div>` : ''}
       </div>
     `;
+    div.dataset.mabn = ca.maBN;
+    div.dataset.hoten = (ca.hoTen || '').toLowerCase();
     dashboardList.appendChild(div);
   });
 
@@ -1719,4 +1723,162 @@ if (btnNhapKho && modalNhapKho) {
       }
     });
   }
+}
+// ============ TÌM KIẾM HIS ============
+const hisSearchInput = document.getElementById('his-search');
+if (hisSearchInput) {
+  hisSearchInput.addEventListener('input', () => {
+    const q = hisSearchInput.value.trim().toLowerCase();
+    document.querySelectorAll('#dashboard-list .dash-card').forEach(card => {
+      if (!q) { card.style.display = ''; return; }
+      const mabn = (card.dataset.mabn || '').toLowerCase();
+      const hoten = (card.dataset.hoten || '').toLowerCase();
+      card.style.display = (mabn.includes(q) || hoten.includes(q)) ? '' : 'none';
+    });
+  });
+}
+
+// ============ HỒ SƠ CÁ NHÂN ============
+const modalProfile = document.getElementById('modal-profile');
+const btnProfile = document.getElementById('btn-profile');
+const btnProfileClose = document.getElementById('btn-profile-close');
+const btnProfileHuy = document.getElementById('btn-profile-huy');
+const btnProfileSave = document.getElementById('btn-profile-save');
+
+function moModalProfile() {
+  if (!_currentUser) return;
+  document.getElementById('profile-hoten').value = _currentUser.hoTen || '';
+  document.getElementById('profile-khoa').value = _currentUser.khoaPhong || '';
+  document.getElementById('profile-email').value = _currentUser.email || '';
+  document.getElementById('profile-newpass').value = '';
+  document.getElementById('profile-msg').className = 'msg';
+  document.getElementById('profile-msg').innerText = '';
+  modalProfile.classList.remove('hidden');
+}
+const closeModalProfile = () => modalProfile.classList.add('hidden');
+if (btnProfile) btnProfile.addEventListener('click', moModalProfile);
+if (btnProfileClose) btnProfileClose.addEventListener('click', closeModalProfile);
+if (btnProfileHuy) btnProfileHuy.addEventListener('click', closeModalProfile);
+
+if (btnProfileSave) {
+  btnProfileSave.addEventListener('click', async () => {
+    const msg = document.getElementById('profile-msg');
+    const body = {
+      hoTen: document.getElementById('profile-hoten').value.trim(),
+      khoaPhong: document.getElementById('profile-khoa').value.trim(),
+      email: document.getElementById('profile-email').value.trim(),
+      newPassword: document.getElementById('profile-newpass').value
+    };
+    btnProfileSave.disabled = true;
+    msg.className = 'msg'; msg.innerText = 'Đang lưu...';
+    try {
+      const res = await fetch('/api/users/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (data.success) {
+        msg.className = 'msg success'; msg.innerText = data.message;
+        if (body.hoTen) { _currentUser.hoTen = body.hoTen; document.getElementById('user-display').textContent = body.hoTen; }
+        if (body.khoaPhong) _currentUser.khoaPhong = body.khoaPhong;
+      } else {
+        msg.className = 'msg error'; msg.innerText = data.message;
+      }
+    } catch(e) {
+      msg.className = 'msg error'; msg.innerText = 'Lỗi kết nối.';
+    } finally {
+      btnProfileSave.disabled = false;
+    }
+  });
+}
+
+// ============ GHI CHÚ CA MỔ ============
+const modalNote = document.getElementById('modal-note');
+const btnNoteClose = document.getElementById('btn-note-close');
+const btnNoteHuy = document.getElementById('btn-note-huy');
+const btnNoteSave = document.getElementById('btn-note-save');
+const noteNguoiGhi = document.getElementById('note-nguoighi');
+
+window.moModalNote = async function(maBN, ngayMo) {
+  document.getElementById('note-mabn').value = maBN;
+  document.getElementById('note-ngaymo').value = ngayMo;
+  document.getElementById('note-content').value = '';
+  document.getElementById('note-khoa').value = _currentUser.khoaPhong || '';
+  document.getElementById('note-password').value = '';
+  document.getElementById('note-pass-wrap').classList.add('hidden');
+  document.getElementById('note-msg').className = 'msg';
+  document.getElementById('note-msg').innerText = '';
+  
+  // Load danh sách nhân viên
+  try {
+    const res = await fetch('/api/nhan-su');
+    const data = await res.json();
+    const allUsers = data.data || [];
+    noteNguoiGhi.innerHTML = allUsers.map(u => `<option value="${escapeHtml(u.hoTen)}">${escapeHtml(u.hoTen)}</option>`).join('');
+    // Auto-select current user
+    noteNguoiGhi.value = _currentUser.hoTen;
+  } catch(e) {
+    noteNguoiGhi.innerHTML = `<option value="${escapeHtml(_currentUser.hoTen)}">${escapeHtml(_currentUser.hoTen)}</option>`;
+  }
+  
+  modalNote.classList.remove('hidden');
+};
+
+const closeModalNote = () => modalNote.classList.add('hidden');
+if (btnNoteClose) btnNoteClose.addEventListener('click', closeModalNote);
+if (btnNoteHuy) btnNoteHuy.addEventListener('click', closeModalNote);
+
+if (noteNguoiGhi) {
+  noteNguoiGhi.addEventListener('change', () => {
+    const passWrap = document.getElementById('note-pass-wrap');
+    if (noteNguoiGhi.value !== _currentUser.hoTen) {
+      passWrap.classList.remove('hidden');
+    } else {
+      passWrap.classList.add('hidden');
+      document.getElementById('note-password').value = '';
+    }
+  });
+}
+
+if (btnNoteSave) {
+  btnNoteSave.addEventListener('click', async () => {
+    const noteMsg = document.getElementById('note-msg');
+    const body = {
+      maBN: document.getElementById('note-mabn').value,
+      ngayMo: document.getElementById('note-ngaymo').value,
+      ghiChu: document.getElementById('note-content').value.trim(),
+      nguoiGhi: noteNguoiGhi.value,
+      khoaGhi: document.getElementById('note-khoa').value.trim(),
+      passwordXacNhan: document.getElementById('note-password').value
+    };
+    if (!body.ghiChu) {
+      noteMsg.className = 'msg error'; noteMsg.innerText = 'Vui lòng nhập nội dung ghi chú.';
+      return;
+    }
+    btnNoteSave.disabled = true;
+    noteMsg.className = 'msg'; noteMsg.innerText = 'Đang ghi chú...';
+    try {
+      const res = await fetch('/api/his/note', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (data.success) {
+        noteMsg.className = 'msg success';
+        noteMsg.innerText = 'Đã ghi chú thành công!';
+        setTimeout(() => { closeModalNote(); loadDashboard(); }, 1200);
+      } else if (data.needPassword) {
+        document.getElementById('note-pass-wrap').classList.remove('hidden');
+        noteMsg.className = 'msg error'; noteMsg.innerText = 'Cần nhập mật khẩu của người được chọn.';
+      } else {
+        noteMsg.className = 'msg error'; noteMsg.innerText = data.message;
+      }
+    } catch(e) {
+      noteMsg.className = 'msg error'; noteMsg.innerText = 'Lỗi kết nối.';
+    } finally {
+      btnNoteSave.disabled = false;
+    }
+  });
 }
