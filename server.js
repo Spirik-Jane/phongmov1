@@ -365,16 +365,26 @@ app.put('/api/users/profile', yeuCauDangNhap, async (req, res) => {
     
     let newPasswordHash = undefined;
     if (newPassword) {
-    // Cập nhật session
-    const session = laySession(req);
-    if (session) {
-      if (hoTen) session.hoTen = hoTen;
-      if (khoaPhong) session.khoaPhong = khoaPhong;
+      newPasswordHash = hashPassword(newPassword);
     }
-    res.json({ success: true, message: 'Đã cập nhật thông tin.' });
+    
+    const result = await updateProfile(req.currentUser.username, { hoTen, khoaPhong, email, newPasswordHash });
+    
+    if (result.success) {
+      // Cập nhật session
+      const session = laySession(req);
+      if (session) {
+        if (hoTen) session.hoTen = hoTen;
+        if (khoaPhong) session.khoaPhong = khoaPhong;
+        if (email !== undefined) session.email = email;
+      }
+      res.json(result);
+    } else {
+      res.json(result);
+    }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi: ' + err.message });
+    console.error('Lỗi profile:', err);
+    res.json({ success: false, message: 'Lỗi server.' });
   }
 });
 
