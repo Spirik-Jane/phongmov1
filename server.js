@@ -361,21 +361,10 @@ app.post('/api/admin/khoa', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
 app.put('/api/users/profile', yeuCauDangNhap, async (req, res) => {
   try {
     const { hoTen, khoaPhong, email, newPassword } = req.body;
-    const fs = require('fs').promises;
-    const dataPath = require('path').join(__dirname, 'data.json');
-    const raw = JSON.parse(await fs.readFile(dataPath, 'utf8'));
-    const users = raw.users || [];
-    const idx = users.findIndex(u => u.username === req.currentUser.username);
-    if (idx === -1) return res.json({ success: false, message: 'Không tìm thấy tài khoản.' });
-    if (hoTen) users[idx].hoTen = hoTen;
-    if (khoaPhong) users[idx].khoaPhong = khoaPhong;
-    if (email) users[idx].email = email;
+    const { updateProfile, hashPassword } = require('./src/auth');
+    
+    let newPasswordHash = undefined;
     if (newPassword) {
-      const { hashPassword } = require('./src/auth');
-      users[idx].password = await hashPassword(newPassword);
-    }
-    raw.users = users;
-    await fs.writeFile(dataPath, JSON.stringify(raw, null, 2), 'utf8');
     // Cập nhật session
     const session = laySession(req);
     if (session) {

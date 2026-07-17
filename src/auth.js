@@ -159,6 +159,28 @@ async function layDanhSachNhanSu() {
   }
 }
 
+async function updateProfile(username, { hoTen, khoaPhong, email, newPasswordHash }) {
+  const users = await layDanhSachUsers();
+  const user = users.find(u => u.username.toLowerCase() === username.toLowerCase().trim());
+  if (!user) return { success: false, message: 'Không tìm thấy tài khoản.' };
+
+  // columns: A: Username, B: PasswordHash, C: HoTen, D: VaiTro, E: KhoaPhong, F: TrangThai, G: Email, H: NgayTao
+  // Cập nhật C (hoTen), E (khoaPhong), G (email) và B (passwordHash) nếu có
+  if (newPasswordHash) {
+    await capNhatVung(`${SHEET_USERS}!B${user.rowIndex}`, [[newPasswordHash]]);
+  }
+  if (hoTen) {
+    await capNhatVung(`${SHEET_USERS}!C${user.rowIndex}`, [[hoTen]]);
+  }
+  if (khoaPhong) {
+    await capNhatVung(`${SHEET_USERS}!E${user.rowIndex}`, [[khoaPhong]]);
+  }
+  if (email !== undefined) {
+    await capNhatVung(`${SHEET_USERS}!G${user.rowIndex}`, [[email]]);
+  }
+  return { success: true, message: 'Cập nhật hồ sơ thành công.' };
+}
+
 module.exports = {
   dangNhap,
   dangKy,
@@ -168,5 +190,6 @@ module.exports = {
   layDanhSachNhanSu,
   layDanhSachUsers,
   verifyPassword,
-  hashPassword
+  hashPassword,
+  updateProfile
 };
