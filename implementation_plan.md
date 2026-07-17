@@ -244,17 +244,19 @@ ZALO_API_URL=https://bot-api.zapps.me/bot
 ### Frontend
 
 #### [MODIFY] [index.html](file:///c:/Users/DELL/Desktop/pm-system/public/index.html)
-
-Thêm tab "📦 Vật tư tiêu hao" vào navigation. Thêm modal chọn cây vật tư khi chốt ca.
+- **Thêm Modal Hồ Sơ:** Bổ sung giao diện Modal "Hồ sơ cá nhân", gồm các trường: Họ tên, Khoa phòng, Email, và trường Mật khẩu mới (không bắt buộc).
+- **Thêm Nút Tài khoản:** Bổ sung một nút "Tài khoản" trên thanh menu trên cùng, bên cạnh nút "Đăng xuất" để mở Modal này.
+- **Tính năng Tìm kiếm Bệnh Nhân:** Thêm ô tìm kiếm (PID hoặc Tên BN) vào thanh công cụ của tab HIS.
+- **Thêm Modal Ghi chú Ca Mổ:** Tạo một modal mới tương tự modal xác nhận, cho phép nhập nội dung Ghi chú, chọn người ghi chú (với logic kiểm tra mật khẩu nếu khác user hiện tại).
 
 #### [MODIFY] [app.js](file:///c:/Users/DELL/Desktop/pm-system/public/app.js)
-
-Thêm section giao diện vật tư tiêu hao:
-
-**1. Dashboard tổng quan:**
-- 5 card thống kê: Tổng dụng cụ | Đang hoạt động | Sắp hết | Đã hết | Hư hỏng
-- Bảng tồn kho nhóm theo loại (click mở rộng xem từng cây)
-- Danh sách cảnh báo: dụng cụ sắp hết/đã hết cần xử lý
+- **Sửa quyền Khoa Trại:** 
+  - Ẩn hoàn toàn tab "Quản lý Vật Tư Tiêu Hao" đối với `NV_KHOA_TRAI`.
+  - Trong tab HIS, ẩn nút "Upload HIS File", chỉ giữ lại chức năng chọn ngày và ô tìm kiếm.
+- **Xử lý sự kiện Hồ sơ:** 
+  - Gọi Fetch API `PUT /api/users/profile` khi người dùng bấm lưu, hiển thị thông báo thành công.
+- **Tìm kiếm HIS:** Thêm sự kiện `input` vào ô tìm kiếm để lọc (filter) các ca mổ đang hiển thị theo tên hoặc PID.
+- **Ghi chú Ca Mổ:** Thêm nút "Ghi chú" vào từng ca mổ. Xử lý mở Modal Ghi chú, kiểm tra mật khẩu người ghi chú, gọi API cập nhật ghi chú vào ca mổ đó (`PUT /api/his/note`), và hiển thị lại ghi chú (kèm thông tin ai ghi) ngay dưới thông tin ca mổ.
 
 **2. Quản lý:**
 - Form nhập vật tư mới (Admin): Tên, Mã kế toán, Số lượng, Giới hạn
