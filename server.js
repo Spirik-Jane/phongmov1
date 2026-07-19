@@ -482,6 +482,25 @@ app.post('/api/chot-vat-tu', yeuCauDangNhap, async (req, res) => {
       return res.json({ success: false, message: 'Không tìm thấy ca trong Case_Summary. Hãy upload dữ liệu trước.' });
     }
 
+    // Log_SuDung cần đủ thông tin lâm sàng của đúng ca đã chọn, không chỉ Họ tên từ Case_Summary.
+    const cacCaDangKy = await timCacCaTheoPID(maBN);
+    const caDangKy = cacCaDangKy.find(ca => String(ca.thoiGianMo || '').trim() === String(ngayMo).trim());
+    if (caDangKy) {
+      infoCa = {
+        ...infoCa,
+        chanDoan: caDangKy.chanDoan || '',
+        pppt: caDangKy.pppt || '',
+        ptv: caDangKy.ptv || ''
+      };
+    }
+
+    // Chỉ chốt khi đã chọn đủ các cây vật tư được yêu cầu bởi chỉ định đã khớp.
+    const danhSachGoiY = await vatTu.goiYChiDinh(maBN, ngayMo);
+    const kiemTraVatTu = vatTu.kiemTraLuaChonVatTu(danhSachVatTuChon, danhSachGoiY);
+    if (!kiemTraVatTu.hopLe) {
+      return res.json({ success: false, message: kiemTraVatTu.message });
+    }
+
     // Cập nhật: TrangThai=Da chot, NoteChung, NguoiXacNhanCuoi, ThoiGianXacNhan
     await capNhatVung(`Case_Summary!D${dongTimThay}:G${dongTimThay}`, [
       ['Da chot', ghiChuChung || '', nguoiXacNhan, thoiGian]
@@ -524,6 +543,20 @@ app.get('/api/vat-tu/goi-y-chi-dinh', yeuCauDangNhap, yeuCauQuyenVatTu, async (r
     const { maBN, ngayMo } = req.query;
     if (!maBN || !ngayMo) return res.status(400).json({ success: false, message: 'Thiếu maBN hoặc ngayMo' });
     const data = await vatTu.goiYChiDinh(maBN, ngayMo);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Khớp ngay dữ liệu vừa phân tích, không cần chờ lưu vào Data_Log.
+app.post('/api/vat-tu/goi-y-tu-upload', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) => {
+  try {
+    const { danhSachMuc } = req.body;
+    if (!Array.isArray(danhSachMuc)) {
+      return res.status(400).json({ success: false, message: 'Thiếu danh sách chỉ định.' });
+    }
+    const data = await vatTu.goiYChiDinhTuDanhSachMuc(danhSachMuc);
     res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

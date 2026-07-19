@@ -6,6 +6,22 @@ function normalizeStr(str) {
   return (str || '').toString().toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+function normalizeForMatch(str) {
+  return normalizeStr(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
+}
+
+function laChiDinh(muc) {
+  return normalizeForMatch(muc.nhom).includes('chi dinh');
+}
+
+function laySoLuongYeuCau(muc) {
+  const soLuong = Number.parseInt(muc.sl, 10);
+  return Number.isFinite(soLuong) && soLuong > 0 ? soLuong : 1;
+}
+
 // 1. Lấy tổng quan (Dashboard Vật Tư)
 async function layTongQuan() {
   const db = await docSheetVatTu('DB_VatTu');
@@ -35,7 +51,8 @@ async function layTongQuan() {
       result.daHet++;
       result.danhSachCanhBao.push({ maQL, tenVT, daDung, gioiHan, trangThai: 'Đã hết' });
     } else if (trangThai.includes('Sẵn sàng')) {
-      if (daDung > 0) result.dangHoatDong++;
+      // Mọi dụng cụ có trạng thái Sẵn sàng đều đang dùng được, kể cả dụng cụ mới (Đã dùng = 0).
+      result.dangHoatDong++;
       
       const conLai = gioiHan - daDung;
       if (conLai <= 2) {
@@ -77,88 +94,106 @@ async function layTonKho() {
   return Object.values(tonKho);
 }
 
-// 3. Khớp chỉ định (Lấy gợi ý cho Frontend khi bấm Chốt ca)
+async function layAnhXaChiDinh() {
+  const khopData = await docSheetVatTu('KhopChiDinh');
+  const dsAnhXa = [];
+  for (let i = 1; i < (khopData || []).length; i++) {
+    const keyword = normalizeForMatch(khopData[i][0]);
+    const tenVatTu = String(khopData[i][1] || '').trim();
+    if (keyword && tenVatTu) dsAnhXa.push({ keyword, tenVatTu });
+  }
+  return dsAnhXa;
+}
+
+// Khớp chỉ định của dữ liệu vừa upload hoặc Data_Log với vật tư cần dùng.
+// soLuongCanDung được giữ lại để bắt buộc chọn đủ số cây trước khi chốt.
+async function goiYChiDinhTuDanhSachMuc(danhSachMuc) {
+  const dsAnhXa = await layAnhXaChiDinh();
+  const soLuongTheoVatTu = new Map();
+
+  for (const muc of danhSachMuc || []) {
+    if (!laChiDinh(muc)) continue;
+    const tenChiDinh = normalizeForMatch(muc.tenMuc);
+    if (!tenChiDinh) continue;
+    for (const anhXa of dsAnhXa) {
+      if (tenChiDinh.includes(anhXa.keyword) || anhXa.keyword.includes(tenChiDinh)) {
+        soLuongTheoVatTu.set(
+          anhXa.tenVatTu,
+          (soLuongTheoVatTu.get(anhXa.tenVatTu) || 0) + laySoLuongYeuCau(muc)
+        );
+      }
+    }
+  }
+
+  if (soLuongTheoVatTu.size === 0) return [];
+
+  const db = await docSheetVatTu('DB_VatTu');
+  const danhSachGoiY = [];
+  for (const [tenVT, soLuongCanDung] of soLuongTheoVatTu) {
+    const cacCaySanSang = [];
+    for (let i = 1; i < db.length; i++) {
+      const dbTenVT = String(db[i][2] || '').trim();
+      const trangThai = String(db[i][5] || '');
+      if (dbTenVT === tenVT && trangThai.includes('Sẵn sàng')) {
+        cacCaySanSang.push({
+          maQL: String(db[i][0] || '').trim(),
+          maBC: String(db[i][1] || '').trim(),
+          tenVT: dbTenVT,
+          daDung: parseInt(db[i][4]) || 0,
+          gioiHan: parseInt(db[i][3]) || 0,
+          dongTrongDB: i + 1
+        });
+      }
+    }
+    cacCaySanSang.sort((a, b) => b.daDung - a.daDung);
+    danhSachGoiY.push({ tenVatTuYeuCau: tenVT, soLuongCanDung, danhSachCay: cacCaySanSang });
+  }
+  return danhSachGoiY;
+}
+
+// 3. Khớp chỉ định đã lưu (dùng khi chốt lại từ Dashboard)
 async function goiYChiDinh(maBN, ngayMo) {
-  // Lấy Data_Log từ sheet chính
   const { docSheet } = require('./sheetsClient');
   const dataLog = await docSheet('Data_Log');
-  
-  // Tìm các chỉ định của ca này (lấy lần upload mới nhất)
+
   let maxLanUpload = 0;
   for (let i = 1; i < dataLog.length; i++) {
     if (String(dataLog[i][0] || '').trim() === maBN && String(dataLog[i][2] || '').trim() === ngayMo) {
       maxLanUpload = Math.max(maxLanUpload, Number(dataLog[i][11]) || 0);
     }
   }
-  
+
   if (maxLanUpload === 0) return [];
-  
-  const chiDinhCuaCa = [];
+
+  const danhSachMuc = [];
   for (let i = 1; i < dataLog.length; i++) {
-    if (String(dataLog[i][0] || '').trim() === maBN && 
+    if (String(dataLog[i][0] || '').trim() === maBN &&
         String(dataLog[i][2] || '').trim() === ngayMo &&
         Number(dataLog[i][11]) === maxLanUpload) {
-      chiDinhCuaCa.push(normalizeStr(dataLog[i][5])); // tenMuc
+      danhSachMuc.push({ nhom: dataLog[i][3], tenMuc: dataLog[i][5], sl: dataLog[i][7] });
     }
   }
+  return goiYChiDinhTuDanhSachMuc(danhSachMuc);
+}
 
-  // Đọc KhopChiDinh (bảng ánh xạ)
-  const khopData = await docSheetVatTu('KhopChiDinh');
-  const dsAnhXa = [];
-  // Bảng KhopChiDinh: A=Từ khóa HIS, B=Tên vật tư
-  if (khopData && khopData.length > 0) {
-    for (let i = 1; i < khopData.length; i++) {
-      const keyword = normalizeStr(khopData[i][0]);
-      const tenVatTu = String(khopData[i][1] || '').trim();
-      if (keyword && tenVatTu) {
-        dsAnhXa.push({ keyword, tenVatTu });
-      }
+function kiemTraLuaChonVatTu(danhSachVatTuChon, danhSachGoiY) {
+  const daChon = (danhSachVatTuChon || []).map(ma => String(ma || '').trim()).filter(Boolean);
+  if (new Set(daChon).size !== daChon.length) return { hopLe: false, message: 'Một cây vật tư chỉ được chọn một lần.' };
+
+  const tatCaMaDuocPhep = new Set();
+  for (const nhom of danhSachGoiY || []) {
+    const maTheoNhom = new Set((nhom.danhSachCay || []).map(cay => cay.maQL));
+    maTheoNhom.forEach(ma => tatCaMaDuocPhep.add(ma));
+    const soDaChon = daChon.filter(ma => maTheoNhom.has(ma)).length;
+    if (soDaChon !== nhom.soLuongCanDung) {
+      return {
+        hopLe: false,
+        message: `Vật tư "${nhom.tenVatTuYeuCau}" cần chọn đúng ${nhom.soLuongCanDung} cây sẵn sàng (đang chọn ${soDaChon}).`
+      };
     }
   }
-
-  // Tìm tên vật tư cần thiết cho ca mổ
-  const tenVatTuCanDung = new Set();
-  for (const tenChiDinh of chiDinhCuaCa) {
-    for (const anhXa of dsAnhXa) {
-      if (tenChiDinh.includes(anhXa.keyword) || anhXa.keyword.includes(tenChiDinh)) {
-        tenVatTuCanDung.add(anhXa.tenVatTu);
-      }
-    }
-  }
-
-  if (tenVatTuCanDung.size === 0) return [];
-
-  // Tìm các cây Sẵn sàng trong DB_VatTu
-  const db = await docSheetVatTu('DB_VatTu');
-  const danhSachGoiY = [];
-  
-  for (const tenVT of tenVatTuCanDung) {
-    const cacCaySanSang = [];
-    for (let i = 1; i < db.length; i++) {
-      const dbTenVT = String(db[i][2] || '').trim();
-      const trangThai = String(db[i][5] || '');
-      if (dbTenVT === tenVT && trangThai.includes('Sẵn sàng')) {
-        const daDung = parseInt(db[i][4]) || 0;
-        const gioiHan = parseInt(db[i][3]) || 0;
-        cacCaySanSang.push({
-          maQL: String(db[i][0] || '').trim(),
-          tenVT: dbTenVT,
-          daDung,
-          gioiHan,
-          dongTrongDB: i + 1
-        });
-      }
-    }
-    
-    // Sort ưu tiên cây đã dùng nhiều nhất (để dùng cho hết)
-    cacCaySanSang.sort((a, b) => b.daDung - a.daDung);
-    danhSachGoiY.push({
-      tenVatTuYeuCau: tenVT,
-      danhSachCay: cacCaySanSang // Trả về tất cả để frontend hiện dropdown
-    });
-  }
-
-  return danhSachGoiY;
+  if (daChon.some(ma => !tatCaMaDuocPhep.has(ma))) return { hopLe: false, message: 'Có cây vật tư không thuộc danh sách được đề xuất.' };
+  return { hopLe: true };
 }
 
 // 4. Xử lý ghi nhận sử dụng (Sau khi user chọn các cây cụ thể)
@@ -572,6 +607,8 @@ module.exports = {
   layTongQuan,
   layTonKho,
   goiYChiDinh,
+  goiYChiDinhTuDanhSachMuc,
+  kiemTraLuaChonVatTu,
   xuLyKhiChot,
   baoHongVatTu,
   nhapVatTuMoi,

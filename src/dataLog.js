@@ -162,22 +162,24 @@ async function layDanhSachDashboard(ngayYYYYMMDD) {
       idxThoiGian = timCotTheoTuKhoa(tieuDe, ['thời gian'], idxDauThoiGian);
       idxKhoa = timCotTheoTuKhoa(tieuDe, ['khoa phòng']);
       
-      // Filter by the date. The date in 'thời gian' could be '11:00 1/7/2026'
-      // Or in '_Date' column if exists. We'll check both.
-      const idxDate = timCotTheoTuKhoa(tieuDe, ['_date']);
+      // Ngày lọc HIS luôn lấy từ cột K của sheet Đăng kí (index 10).
+      // Không dùng cột A/_Date hoặc thời gian hiển thị của ca mổ.
+      const idxDate = 10;
       
       for (let i = 1; i < data.length; i++) {
         const row = data[i];
         let rowDateStr = '';
         if (idxDate > -1 && row[idxDate]) {
-          // '09/01/2026' -> '2026-01-09' (assuming dd/mm/yyyy)
-          const parts = row[idxDate].split('/');
-          if (parts.length === 3) rowDateStr = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-        }
-        if (!rowDateStr && idxThoiGian > -1 && row[idxThoiGian]) {
-          // Fallback parsing from something like '11:00 1/7/2026'
-          const m = row[idxThoiGian].match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-          if (m) rowDateStr = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+          const giaTriThoiGian = String(row[idxDate]).trim();
+          // Cột K có dạng "06:30 19/7/2026", nên lấy riêng phần ngày.
+          const matchNgay = giaTriThoiGian.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+          if (matchNgay) {
+            rowDateStr = `${matchNgay[3]}-${matchNgay[2].padStart(2, '0')}-${matchNgay[1].padStart(2, '0')}`;
+          } else {
+            // Cũng chấp nhận trường hợp cột K trả về yyyy-mm-dd.
+            const matchISO = giaTriThoiGian.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (matchISO) rowDateStr = `${matchISO[1]}-${matchISO[2].padStart(2, '0')}-${matchISO[3].padStart(2, '0')}`;
+          }
         }
         
         if (rowDateStr === ngayYYYYMMDD) {

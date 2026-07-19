@@ -38,6 +38,7 @@ async function timCacCaTheoPID(maBN) {
   const idxMaBenh = timCotTheoTuKhoa(tieuDe, ['mã bệnh']);
   const idxHoTen = timCotTheoTuKhoa(tieuDe, ['họ tên']);
   const idxChanDoan = timCotTheoTuKhoa(tieuDe, ['chẩn đoán']);
+  const idxPPPT = timCotTheoTuKhoa(tieuDe, ['phương pháp phẫu thuật', 'pppt']);
   const idxPTV = timCotTheoTuKhoa(tieuDe, ['bác sĩ phẫu thuật', 'phẫu thuật viên']);
   const idxDauThoiGian = timCotTheoTuKhoa(tieuDe, ['dấu thời gian']);
   const idxThoiGian = timCotTheoTuKhoa(tieuDe, ['thời gian'], idxDauThoiGian);
@@ -52,6 +53,7 @@ async function timCacCaTheoPID(maBN) {
         maBN: giaTriMaBenh,
         hoTen: idxHoTen > -1 ? row[idxHoTen] || '' : '',
         chanDoan: idxChanDoan > -1 ? row[idxChanDoan] || '' : '',
+        pppt: idxPPPT > -1 ? row[idxPPPT] || '' : '',
         ptv: idxPTV > -1 ? row[idxPTV] || '' : '',
         thoiGianMo: idxThoiGian > -1 ? row[idxThoiGian] || '' : '',
         khu: idxKhu > -1 ? row[idxKhu] || '' : ''

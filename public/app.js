@@ -5,6 +5,7 @@ let _caDaChon = null;
 let _refreshInterval = null;
 let _danhSachNhanSu = [];
 let _modeChot = 'dashboard'; // 'dashboard' | 'upload'
+let _goiYVatTuTuUpload = null;
 
 // Gọi Lucide icons
 function refreshIcons() {
@@ -339,7 +340,7 @@ function renderDashboard(data) {
   refreshIcons();
 }
 
-// Thanh thống kê nhanh phía trên dashboard (Tổng ca / Chưa cập nhật / Đang cập nhật / Đã chốt / Có vật tư mắc tiền)
+// Thanh thống kê nhanh phía trên dashboard (Tổng ca / Chưa upload HIS / Chờ chốt / Đã chốt / Có vật tư mắc tiền)
 function renderDashStats(data) {
   const wrap = document.getElementById('dash-stats');
   if (!wrap) return;
@@ -348,12 +349,13 @@ function renderDashStats(data) {
     wrap.innerHTML = '';
     return;
   }
-  let soDaChot = 0, soDangCapNhat = 0, soChuaCapNhat = 0, soMacTien = 0, soLapLai = 0;
+  let soDaChot = 0, soChoChot = 0, soChuaUpload = 0, soMacTien = 0, soLapLai = 0;
   data.forEach((ca) => {
     const st = (ca.trangThai || '').toLowerCase();
     if (st.includes('chot') || st.includes('chốt')) soDaChot++;
-    else if (st.includes('cap nhat') || st.includes('cập nhật') || ca.lanUpload > 0) soDangCapNhat++;
-    else soChuaCapNhat++;
+    // Ca đã upload HIS nhưng chưa chốt. Không gộp nhầm "Chưa cập nhật" vào nhóm này.
+    else if (st.includes('dang cap nhat') || st.includes('đang cập nhật') || ca.lanUpload > 0) soChoChot++;
+    else soChuaUpload++;
     if (Array.isArray(ca.dsMacTien) && ca.dsMacTien.length) soMacTien++;
     if (Array.isArray(ca.dsLapLai) && ca.dsLapLai.length) soLapLai++;
   });
@@ -361,8 +363,8 @@ function renderDashStats(data) {
   wrap.classList.remove('hidden');
   wrap.innerHTML = `
     <div class="stat-chip"><div class="stat-num">${data.length}</div><div class="stat-label">Tổng ca mổ</div></div>
-    <div class="stat-chip stat-pending"><div class="stat-num">${soChuaCapNhat}</div><div class="stat-label">Chưa cập nhật</div></div>
-    <div class="stat-chip stat-warn"><div class="stat-num">${soDangCapNhat}</div><div class="stat-label">Đang cập nhật</div></div>
+    <div class="stat-chip stat-pending"><div class="stat-num">${soChuaUpload}</div><div class="stat-label">Chưa upload HIS</div></div>
+    <div class="stat-chip stat-warn"><div class="stat-num">${soChoChot}</div><div class="stat-label">Chờ chốt</div></div>
     <div class="stat-chip stat-done"><div class="stat-num">${soDaChot}</div><div class="stat-label">Đã chốt</div></div>
     <div class="stat-chip stat-expensive"><div class="stat-num">${soMacTien}</div><div class="stat-label">Có vật tư mắc tiền</div></div>
   `;
@@ -425,6 +427,7 @@ document.getElementById('btn-show-upload').addEventListener('click', () => {
   document.getElementById('file-input').value = '';
   _duLieuPhanTich = null;
   _caDaChon = null;
+  _goiYVatTuTuUpload = null;
   stopAutoRefresh();
   switchInnerView('upload');
 });
@@ -469,6 +472,7 @@ async function xuLyFile(file) {
     _duLieuPhanTich = data;
     _caDaChon = null;
     renderKetQua(data);
+    taiPhanTichChiDinhSauUpload(data);
   } catch (err) {
     hienThongBao('upload-msg', 'Lỗi kết nối: ' + err.message, 'error');
   }
@@ -504,8 +508,62 @@ function renderKetQua(data) {
   refreshIcons();
 }
 
+function layChiDinhLapLai(danhSachMuc) {
+  const ketQua = new Map();
+  (danhSachMuc || []).forEach(muc => {
+    const nhom = (muc.nhom || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd');
+    if (!nhom.includes('chi dinh')) return;
+    const tenMuc = String(muc.tenMuc || '').trim();
+    const key = tenMuc.toLocaleLowerCase('vi').replace(/\s+/g, ' ').trim();
+    if (!key) return;
+    const soLuong = parseInt(muc.sl, 10) || 1;
+    const cu = ketQua.get(key) || { tenMuc, soLuong: 0 };
+    cu.soLuong += soLuong;
+    ketQua.set(key, cu);
+  });
+  return Array.from(ketQua.values()).filter(muc => muc.soLuong >= 2);
+}
+
+async function taiPhanTichChiDinhSauUpload(data) {
+  const container = document.getElementById('upload-analysis-alerts');
+  const chiDinhLapLai = layChiDinhLapLai(data.danhSachMuc);
+  const render = (goiYVatTu = [], loi = '') => {
+    const canhBaoLap = chiDinhLapLai.length
+      ? `<div class="card-alert alert-repeat" style="margin:0;"><i data-lucide="alert-triangle"></i><span><b>Chỉ định lặp từ 2 lần:</b> ${chiDinhLapLai.map(m => `${escapeHtml(m.tenMuc)} (×${m.soLuong})`).join(' · ')}</span></div>`
+      : `<div class="card-alert" style="margin:0; background:#ecfdf3; color:#167c3b;"><i data-lucide="check-circle"></i><span>Không có chỉ định lặp từ 2 lần trở lên.</span></div>`;
+    const deXuatVatTu = loi
+      ? `<div class="msg error" style="margin:10px 0 0;">${escapeHtml(loi)}</div>`
+      : goiYVatTu.length
+        ? `<div style="margin-top:12px; font-size:13px;"><b>Vật tư tiêu hao khớp danh mục:</b>${goiYVatTu.map(nhom => {
+            const soCay = (nhom.danhSachCay || []).length;
+            const thieu = soCay < nhom.soLuongCanDung;
+            return `<div style="margin-top:6px; padding:8px 10px; border-radius:6px; background:${thieu ? '#fff1f2' : 'var(--surface-alt)'}; color:${thieu ? 'var(--apple-red)' : 'inherit'};">${escapeHtml(nhom.tenVatTuYeuCau)}: cần trừ <b>${nhom.soLuongCanDung}</b> cây · đang có ${soCay} cây sẵn sàng${thieu ? ' — chưa đủ để chốt' : ''}</div>`;
+          }).join('')}</div>`
+        : `<div style="margin-top:12px; font-size:13px; color:var(--text-secondary);">Không có chỉ định nào khớp bảng danh mục vật tư đã thiết lập.</div>`;
+    container.innerHTML = `<div class="section-card"><div class="section-title"><i data-lucide="shield-alert"></i> 3. Kiểm tra chỉ định &amp; vật tư tiêu hao</div>${canhBaoLap}${deXuatVatTu}</div>`;
+    refreshIcons();
+  };
+
+  container.innerHTML = '<div class="section-card"><div class="section-title"><i data-lucide="loader-2" class="spin"></i> 3. Đang đối chiếu chỉ định với danh mục vật tư...</div></div>';
+  try {
+    const res = await fetch('/api/vat-tu/goi-y-tu-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ danhSachMuc: data.danhSachMuc })
+    });
+    const ketQua = await res.json();
+    if (!ketQua.success) throw new Error(ketQua.message || 'Không thể đối chiếu vật tư.');
+    _goiYVatTuTuUpload = ketQua.data || [];
+    render(_goiYVatTuTuUpload);
+  } catch (err) {
+    _goiYVatTuTuUpload = null;
+    render([], err.message || 'Không thể tải đối chiếu vật tư.');
+  }
+}
+
 function renderDanhSachMuc(data) {
   const dsTheoNhom = {};
+  const chiDinhLapLai = new Map(layChiDinhLapLai(data.danhSachMuc).map(muc => [muc.tenMuc.toLocaleLowerCase('vi').replace(/\s+/g, ' ').trim(), muc.soLuong]));
   data.danhSachMuc.forEach((m) => {
     if (!dsTheoNhom[m.nhom]) dsTheoNhom[m.nhom] = [];
     dsTheoNhom[m.nhom].push(m);
@@ -530,12 +588,14 @@ function renderDanhSachMuc(data) {
     dsTheoNhom[nhom].forEach((m) => {
       stt++;
       const isExp = m.coMacTien;
+      const keyLapLai = String(m.tenMuc || '').trim().toLocaleLowerCase('vi').replace(/\s+/g, ' ').trim();
+      const soLanLapLai = chiDinhLapLai.get(keyLapLai) || 0;
       // Khi click vào row (trừ input/textarea), toggle drawer ghi chú bên dưới
       html += `
         <div class="item-container" id="item-cnt-${nhom}-${stt}">
           <div class="item-row${isExp ? ' mac-tien' : ''}" onclick="document.getElementById('item-cnt-${nhom}-${stt}').classList.toggle('expanded')">
             <div style="color:var(--text-secondary); font-weight:500;">${stt}</div>
-            <div style="font-weight:500;">${escapeHtml(m.tenMuc)}${isExp ? '<span class="badge badge-expensive">MẮC TIỀN</span>' : ''}</div>
+            <div style="font-weight:500;">${escapeHtml(m.tenMuc)}${isExp ? '<span class="badge badge-expensive">MẮC TIỀN</span>' : ''}${soLanLapLai ? `<span class="badge" style="background:#fff1f2;color:#dc2626;border:1px solid #fecdd3;">LẶP ×${soLanLapLai}</span>` : ''}</div>
             <div style="color:var(--text-secondary);">${escapeHtml(m.dvt)}</div>
             <div style="font-weight:600;">${escapeHtml(m.sl)}</div>
             <div style="color:var(--text-secondary);">${escapeHtml(m.duongDung)}</div>
@@ -709,23 +769,39 @@ async function moModalChot(maBN, ngayMo, hoTen, hasAbnormal = false) {
   refreshIcons();
   
   try {
-    const resVT = await fetch(`/api/vat-tu/goi-y-chi-dinh?maBN=${encodeURIComponent(maBN)}&ngayMo=${encodeURIComponent(ngayMo)}`);
-    const dataVT = await resVT.json();
+    let dataVT;
+    if (_modeChot === 'upload') {
+      if (!Array.isArray(_goiYVatTuTuUpload)) {
+        const resVT = await fetch('/api/vat-tu/goi-y-tu-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ danhSachMuc: _duLieuPhanTich.danhSachMuc })
+        });
+        dataVT = await resVT.json();
+        if (dataVT.success) _goiYVatTuTuUpload = dataVT.data || [];
+      } else {
+        dataVT = { success: true, data: _goiYVatTuTuUpload };
+      }
+    } else {
+      const resVT = await fetch(`/api/vat-tu/goi-y-chi-dinh?maBN=${encodeURIComponent(maBN)}&ngayMo=${encodeURIComponent(ngayMo)}`);
+      dataVT = await resVT.json();
+    }
     if (dataVT.success && dataVT.data && dataVT.data.length > 0) {
       document.getElementById('chot-vattu-goiy').classList.remove('hidden');
       let vtHtml = '';
       dataVT.data.forEach(nhom => {
-        vtHtml += `<div class="vt-group-req" data-nhom="${escapeHtml(nhom.tenVatTuYeuCau)}" style="font-weight:600; font-size:13px; margin: 10px 0 6px 0;">${nhom.tenVatTuYeuCau}:</div>`;
+        const soLuongCanDung = Number(nhom.soLuongCanDung) || 1;
+        vtHtml += `<div class="vt-group-req" data-nhom="${escapeHtml(nhom.tenVatTuYeuCau)}" data-required="${soLuongCanDung}" style="font-weight:600; font-size:13px; margin: 10px 0 6px 0;">${escapeHtml(nhom.tenVatTuYeuCau)} — cần chọn đúng ${soLuongCanDung} cây:</div>`;
         if (nhom.danhSachCay && nhom.danhSachCay.length > 0) {
           nhom.danhSachCay.forEach((cay, idx) => {
-            // Tự động check nếu chỉ có 1 cây
-            const checkedStr = nhom.danhSachCay.length === 1 ? 'checked' : '';
+            // Chỉ tự chọn khi nhu cầu là một và chỉ có một cây sẵn sàng.
+            const checkedStr = soLuongCanDung === 1 && nhom.danhSachCay.length === 1 ? 'checked' : '';
             vtHtml += `
               <label class="vt-select-item">
                 <input type="checkbox" name="vattu-chon" data-nhom="${escapeHtml(nhom.tenVatTuYeuCau)}" value="${cay.maQL}" ${checkedStr}>
                 <div class="vt-select-info">
                   <div class="vt-select-title">${cay.maQL}</div>
-                  <div class="vt-select-desc">Đã dùng: ${cay.daDung}/${cay.gioiHan} lần</div>
+                  <div class="vt-select-desc">Mã kế toán: ${escapeHtml(cay.maBC || '-')} · Đã dùng: ${cay.daDung}/${cay.gioiHan} lần</div>
                 </div>
               </label>
             `;
@@ -809,11 +885,15 @@ document.getElementById('btn-chot-xacnhan').addEventListener('click', async () =
 
     if (nguoiXacNhan !== '') {
       // Validate vật tư
-      const reqGroups = Array.from(document.querySelectorAll('.vt-group-req')).map(el => el.getAttribute('data-nhom'));
-      for (const groupName of reqGroups) {
+      const reqGroups = Array.from(document.querySelectorAll('.vt-group-req')).map(el => ({
+        tenVatTu: el.getAttribute('data-nhom'),
+        soLuongCanDung: Number(el.getAttribute('data-required')) || 1
+      }));
+      for (const group of reqGroups) {
+        const groupName = group.tenVatTu;
         const checkedInGroup = document.querySelectorAll(`input[name="vattu-chon"][data-nhom="${CSS.escape(groupName)}"]:checked`);
-        if (checkedInGroup.length === 0) {
-          hienThongBao('chot-msg', `⚠ Vui lòng chọn cây thực tế sử dụng cho "${groupName}"!`, 'error');
+        if (checkedInGroup.length !== group.soLuongCanDung) {
+          hienThongBao('chot-msg', `⚠ "${groupName}" cần chọn đúng ${group.soLuongCanDung} cây thực tế sử dụng (đang chọn ${checkedInGroup.length}).`, 'error');
           btnXacNhan.disabled = false;
           btnXacNhan.innerHTML = '<i data-lucide="check"></i> Xác nhận Chốt';
           refreshIcons();
