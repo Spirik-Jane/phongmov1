@@ -22,11 +22,19 @@ Tải và cài từ https://nodejs.org (chọn bản LTS). Cài xong mở CMD/Po
 2. Mở `.env`, điền `GOOGLE_SHEET_ID` (lấy từ URL Google Sheet, đoạn giữa `/d/` và `/edit`).
 3. Đảm bảo `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` trỏ đúng tới file JSON ở bước 2.5 (mặc định `./credentials/service-account.json`).
 
-## 4. Cài thư viện & chạy thử
+## 4. Cài thư viện & chạy thử trên máy mới
 
+### Cách 1: Tự động (Khuyên dùng trên Windows)
+Tải code từ GitHub về, click đúp vào file `setup.bat` (hoặc chạy `.\setup.bat` trong CMD/PowerShell). Script sẽ tự động:
+1. Cài đặt các thư viện (`npm install`).
+2. Tự tạo file `.env` nếu thiếu.
+3. Kiểm tra file `credentials/service-account.json` và nhắc nhở nếu chưa chép sang.
+4. Tự khởi động server (`npm start`).
+
+### Cách 2: Thủ công
 Mở CMD/PowerShell tại thư mục project:
 
-```
+```bash
 npm install
 npm start
 ```
