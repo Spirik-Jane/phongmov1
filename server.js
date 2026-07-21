@@ -704,7 +704,28 @@ app.get('/api/users', yeuCauDangNhap, async (req, res) => {
   }
 });
 
+const os = require('os');
+function getLocalIp() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server đang chạy tại http://localhost:${PORT}`);
+const HOST = '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+  const localIp = getLocalIp();
+  console.log(`==================================================`);
+  console.log(` Server đang chạy thành công!`);
+  console.log(` - Truy cập tại máy này:  http://localhost:${PORT}`);
+  console.log(` - Truy cập từ MÁY KHÁC (cùng wifi/LAN): http://${localIp}:${PORT}`);
+  console.log(`==================================================`);
 });
+
