@@ -10,6 +10,7 @@ const { layDanhSachTuKhoaMacTien, kiemTraMacTien, layDuLieuCaCu, ghiDuLieuCa, la
 const { dangNhap, dangKy, duyetTaiKhoan, khoaTaiKhoan, xacThucCheo, layDanhSachNhanSu, layDanhSachUsers } = require('./src/auth');
 const { capNhatVung } = require('./src/sheetsClient');
 const vatTu = require('./src/vatTu');
+const thuocNHT = require('./src/thuocNHT');
 
 // ============ EMAIL (NODEMAILER) ============
 let nodemailer;
@@ -112,6 +113,22 @@ function yeuCauAdmin(req, res, next) {
     return res.status(403).json({ success: false, message: 'Bạn không có quyền quản trị.' });
   }
   next();
+}
+
+async function yeuCauKTVGM(req, res, next) {
+  try {
+    const isKTV = await thuocNHT.kiemTraQuyenKTVGM(req.currentUser.hoTen);
+    const isAdmin = req.currentUser.vaiTro === 'Admin';
+    const isNVPM = req.currentUser.vaiTro === 'NV_PM';
+    
+    // Nới lỏng: Cho phép Admin, hoặc có tên trong CSDL (isKTV), hoặc là Nhân viên phòng mổ
+    if (!isKTV && !isAdmin && !isNVPM) {
+      return res.status(403).json({ success: false, message: 'Chỉ KTV Gây Mê (hoặc Admin/NV PM) mới được thực hiện thao tác này.' });
+    }
+    next();
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi kiểm tra quyền KTV GM: ' + err.message });
+  }
 }
 
 // ============ PHÂN TÍCH FILE (chưa ghi dữ liệu) ============
@@ -298,11 +315,11 @@ app.post('/api/login', async (req, res) => {
 
 app.post('/api/register', async (req, res) => {
   try {
-    const { username, password, hoTen, khoaPhong, email, vaiTro } = req.body;
+    const { username, password, hoTen, khoaPhong, email, vaiTro, maNV } = req.body;
     if (!username || !password) {
       return res.status(400).json({ success: false, message: 'Thiếu tên đăng nhập hoặc mật khẩu.' });
     }
-    const result = await dangKy({ username, password, hoTen, khoaPhong, email, vaiTro });
+    const result = await dangKy({ username, password, hoTen, khoaPhong, email, vaiTro, maNV });
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -321,7 +338,7 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/me', (req, res) => {
   const session = laySession(req);
   if (!session) return res.json({ success: false, loggedIn: false });
-  res.json({ success: true, loggedIn: true, user: { username: session.username, hoTen: session.hoTen, vaiTro: session.vaiTro, khoaPhong: session.khoaPhong } });
+  res.json({ success: true, loggedIn: true, user: { username: session.username, hoTen: session.hoTen, vaiTro: session.vaiTro, khoaPhong: session.khoaPhong, maNV: session.maNV } });
 });
 
 // ============ ADMIN API ============
@@ -701,6 +718,170 @@ app.get('/api/users', yeuCauDangNhap, async (req, res) => {
     res.json({ success: true, data: activeUsers });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============ API THUỐC NGHIỆN / HƯỚNG THẦN ============
+
+app.get('/api/thuoc-nht/danh-muc', yeuCauDangNhap, async (req, res) => {
+  try { res.json({ success: true, data: await thuocNHT.layDanhMuc() }); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/thuoc-nht/danh-muc', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
+  try { res.json(await thuocNHT.themThuocVaoDanhMuc(req.body)); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.put('/api/thuoc-nht/danh-muc/:stt', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
+  try { res.json(await thuocNHT.suaDanhMuc(parseInt(req.params.stt), req.body)); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/thuoc-nht/kiem-tra-quyen', yeuCauDangNhap, async (req, res) => {
+  try {
+    const isKTV = await thuocNHT.kiemTraQuyenKTVGM(req.currentUser.hoTen);
+    const isAdmin = req.currentUser.vaiTro === 'Admin';
+    const isNVPM = req.currentUser.vaiTro === 'NV_PM';
+    res.json({ success: true, isKTVGM: isKTV || isAdmin || isNVPM });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/thuoc-nht/phong', yeuCauDangNhap, async (req, res) => {
+  try { res.json({ success: true, data: await thuocNHT.layDanhSachPhong() }); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/thuoc-nht/mo-ong', yeuCauDangNhap, yeuCauKTVGM, async (req, res) => {
+  try {
+    req.body.nguoiGhi = req.currentUser.hoTen || req.currentUser.username;
+    res.json(await thuocNHT.moOngMoi(req.body));
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/thuoc-nht/su-dung', yeuCauDangNhap, yeuCauKTVGM, async (req, res) => {
+  try {
+    req.body.nguoiGhi = req.currentUser.hoTen || req.currentUser.username;
+    res.json(await thuocNHT.ghiNhanSuDung(req.body));
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/thuoc-nht/ong/:maOng', yeuCauDangNhap, async (req, res) => {
+  try { res.json({ success: true, data: await thuocNHT.layThongTinOng(req.params.maOng) }); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/thuoc-nht/ong-dang-mo', yeuCauDangNhap, async (req, res) => {
+  try { res.json({ success: true, data: await thuocNHT.layDanhSachOngDangMo() }); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/thuoc-nht/hoan-tra', yeuCauDangNhap, yeuCauKTVGM, async (req, res) => {
+  try {
+    const { maOng, tenThuoc, hamLuong, tongLieuOng, donViTinh, soLo, hanDung, lieuHoanTra, lyDo, loai, chungKienUser, chungKienPass } = req.body;
+    let nguoiChungKien = '';
+    
+    // Nếu có chứng kiến -> xác thực chéo
+    if (chungKienUser && chungKienPass) {
+      const kqXacThuc = await xacThucCheo(chungKienUser, chungKienPass);
+      if (!kqXacThuc.success) return res.status(403).json({ success: false, message: 'Xác thực người chứng kiến thất bại: ' + kqXacThuc.message });
+      nguoiChungKien = kqXacThuc.hoTen;
+    }
+
+    const nguoiGhi = req.currentUser.hoTen || req.currentUser.username;
+    res.json(await thuocNHT.ghiNhanHoanTra({ maOng, tenThuoc, hamLuong, tongLieuOng, donViTinh, soLo, hanDung, lieuHoanTra, lyDo, loai, nguoiChungKien, nguoiGhi }));
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/thuoc-nht/log/:ngay', yeuCauDangNhap, async (req, res) => {
+  try { res.json({ success: true, data: await thuocNHT.layLogTheoNgay(req.params.ngay) }); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.post('/api/thuoc-nht/tong-ket', yeuCauDangNhap, yeuCauKTVGM, async (req, res) => {
+  try { res.json(await thuocNHT.tongKetCaTruc(req.body.ngayLV, req.currentUser.hoTen)); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/thuoc-nht/tong-ket/:ngay', yeuCauDangNhap, async (req, res) => {
+  try { res.json({ success: true, data: await thuocNHT.layTongKet(req.params.ngay) }); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/thuoc-nht/bao-cao', yeuCauDangNhap, async (req, res) => {
+  try { res.json({ success: true, data: await thuocNHT.layBaoCao(req.query.tuNgay, req.query.denNgay) }); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/thuoc-nht/canh-bao', yeuCauDangNhap, async (req, res) => {
+  try { res.json({ success: true, data: await thuocNHT.kiemTraOngChuaXuLy() }); }
+  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get('/api/thuoc-nht/bien-ban/:loai/:ngay', yeuCauDangNhap, async (req, res) => {
+  const { loai, ngay } = req.params;
+  const type = req.query.type; // 'pdf' hoặc 'excel'
+  if (!type) return res.status(400).json({ success: false, message: 'Thiếu type (pdf/excel)' });
+
+  let sheetIdToDelete = null;
+  try {
+    let exportResult;
+    if (loai === 'su-dung') {
+      exportResult = await thuocNHT.xuatBienBanSuDung(ngay);
+    } else if (loai === 'hoan-tra') {
+      exportResult = await thuocNHT.xuatBienBanHoanTra(ngay);
+    } else {
+      return res.status(400).json({ success: false, message: 'Loại biên bản không hợp lệ' });
+    }
+
+    sheetIdToDelete = exportResult.sheetId;
+    const exportUrl = type === 'excel' ? exportResult.excelUrl : exportResult.pdfUrl;
+    const ext = type === 'excel' ? 'xlsx' : 'pdf';
+    const mimeType = type === 'excel'
+      ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      : 'application/pdf';
+
+    const { google } = require('googleapis');
+    const KEY_FILE = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || './credentials/service-account.json';
+    const auth = new google.auth.GoogleAuth({
+      keyFile: KEY_FILE,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly']
+    });
+    const authClient = await auth.getClient();
+    const tokenResponse = await authClient.getAccessToken();
+    const accessToken = tokenResponse.token || tokenResponse.res?.data?.access_token;
+
+    const googleRes = await fetch(exportUrl, {
+      headers: { 'Authorization': 'Bearer ' + accessToken }
+    });
+
+    if (!googleRes.ok) {
+      throw new Error('Google trả lỗi: ' + googleRes.status + ' ' + googleRes.statusText);
+    }
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="BienBan_${loai}_${ngay}.${ext}"`);
+
+    if (googleRes.body && typeof googleRes.body.pipe === 'function') {
+      googleRes.body.pipe(res);
+      googleRes.body.on('end', () => {
+        thuocNHT.xoaSheetTam(sheetIdToDelete).catch(e => console.error('Cleanup error:', e));
+      });
+    } else {
+      const buffer = Buffer.from(await googleRes.arrayBuffer());
+      res.send(buffer);
+      thuocNHT.xoaSheetTam(sheetIdToDelete).catch(e => console.error('Cleanup error:', e));
+    }
+  } catch (err) {
+    console.error('Export error NHT:', err);
+    if (sheetIdToDelete) {
+      thuocNHT.xoaSheetTam(sheetIdToDelete).catch(() => { });
+    }
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Lỗi xuất báo cáo: ' + err.message });
+    }
   }
 });
 

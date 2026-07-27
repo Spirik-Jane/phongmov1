@@ -41,7 +41,8 @@ async function layDanhSachUsers() {
     khoaPhong: String(row[4] || ''),
     trangThai: String(row[5] || ''),
     email: String(row[6] || ''),
-    ngayTao: String(row[7] || '')
+    ngayTao: String(row[7] || ''),
+    maNV: String(row[8] || '')
   }));
 }
 
@@ -72,7 +73,8 @@ async function dangNhap(username, password) {
       hoTen: user.hoTen,
       vaiTro: user.vaiTro,
       khoaPhong: user.khoaPhong,
-      email: user.email
+      email: user.email,
+      maNV: user.maNV
     }
   };
 }
@@ -98,7 +100,8 @@ async function dangKy({ username, password, hoTen, khoaPhong, email, vaiTro }) {
     khoaPhong || '',
     'Cho duyet',
     email || '',
-    ngayTao
+    ngayTao,
+    maNV || ''
   ]]);
   
   return { success: true, message: 'Đăng ký thành công! Tài khoản đang chờ Admin duyệt.' };
