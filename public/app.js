@@ -2145,7 +2145,13 @@ function renderNHTActiveAmpoules(dsOng) {
     grouped[o.tenThuoc].push(o);
   }
 
-  let html = '';
+  let html = `
+    <div style="background: rgba(239, 68, 68, 0.1); border-left: 4px solid var(--apple-red); color: var(--apple-red); padding: 12px; border-radius: 8px; margin-bottom: 20px; font-weight: 500; display: flex; align-items: center; gap: 8px;">
+      <i data-lucide="alert-circle" style="width: 20px; height: 20px;"></i>
+      Ca trực hiện đang có ${dsDangMo.length} ống thuốc N-HT còn tồn dư. Không thể "Tổng kết ca" nếu chưa hoàn trả hoặc hủy bỏ lượng thừa!
+    </div>
+  `;
+
   for (const tenThuoc in grouped) {
     html += `<div style="margin-bottom: 20px;">`;
     html += `<h4 style="margin: 0 0 10px 0; color: var(--primary-color); display: flex; align-items: center; gap: 6px;"><i data-lucide="pill" style="width:16px; height:16px;"></i> ${tenThuoc}</h4>`;
@@ -2446,7 +2452,7 @@ document.getElementById('btn-hoantra-save')?.addEventListener('click', async () 
 
 // --- Tổng Kết ---
 document.getElementById('btn-nht-tongket')?.addEventListener('click', async () => {
-  if (!confirm('Bạn có chắc chắn muốn tổng kết ca trực hiện tại? (Các ống chưa xử lý sẽ được cảnh báo)')) return;
+  if (!confirm('Bạn có chắc chắn muốn chốt số liệu và tổng kết ca trực hiện tại? (Sẽ không thể chốt nếu còn ống chưa xử lý dư)')) return;
   try {
     const ngayLV = getNHTSelectedDate();
 

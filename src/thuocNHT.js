@@ -441,11 +441,20 @@ async function tongKetCaTruc(ngayLV, nguoiTongKet) {
   if (!ngayLV) ngayLV = layNgayLamViec();
 
   const dsOng = await layDanhSachOngDangMo(ngayLV);
-  if (!dsOng.length) {
-    return { success: true, message: 'Không có ống nào trong ca này.', dsOng: [], canhBao: [] };
+  
+  // Lọc chỉ ống đang mở
+  const dsDangMo = dsOng.filter(o => o.trangThaiOng === 'DangMo' && o.conLai > 0);
+
+  // NẾU CÓ ỐNG CHƯA XỬ LÝ -> CHẶN KHÔNG CHO TỔNG KẾT
+  if (dsDangMo.length > 0) {
+    return {
+      success: false,
+      message: `Không thể tổng kết ca. Đang còn ${dsDangMo.length} ống tồn dư chưa hoàn trả/hủy bỏ.`,
+      dsOng,
+      canhBao: dsDangMo
+    };
   }
 
-  const canhBao = [];
   const tongKetRows = [];
   const thoiGian = layThoiGianHienTai();
 
@@ -454,23 +463,18 @@ async function tongKetCaTruc(ngayLV, nguoiTongKet) {
     const xuLyTonDu = ong.conLai === 0 ? (ong.coHoanTra ? 'DaHoanTra' : 'DaDungHet') : 'ChuaXuLy';
     const nguoiCK = ong.dsHoanTra.length > 0 ? ong.dsHoanTra[0].nguoiChungKien : '';
 
-    if (xuLyTonDu === 'ChuaXuLy') {
-      canhBao.push({ maOng: ong.maOng, tenThuoc: ong.tenThuoc, conLai: ong.conLai, donViTinh: ong.donViTinh });
-    }
-
     tongKetRows.push([
       ngayLV, ong.maOng, ong.tenThuoc, ong.hamLuong,
       ong.soLo, ong.hanDung, ong.tongLieuOng, ong.donViTinh,
       chiTiet, ong.tongDaDung, ong.conLai + ong.tongDaHoanTra,
       xuLyTonDu, nguoiCK, nguoiTongKet || '', thoiGian,
-      canhBao.some(c => c.maOng === ong.maOng) ? 'ChuaHoanTat' : 'HoanTat'
+      'HoanTat'
     ]);
   }
 
-  // Xóa tổng kết cũ cùng ngày trước khi ghi mới
+  // Ghi thêm vào tổng kết
   try {
     const existing = await docSheet(TAB_TONG_KET);
-    // Không xóa — chỉ ghi thêm. Có thể tổng kết nhiều lần.
   } catch { /* tab chưa tồn tại */ }
 
   if (tongKetRows.length > 0) {
@@ -479,11 +483,9 @@ async function tongKetCaTruc(ngayLV, nguoiTongKet) {
 
   return {
     success: true,
-    message: canhBao.length > 0
-      ? `Tổng kết xong. ⚠️ Còn ${canhBao.length} ống chưa xử lý tồn dư!`
-      : 'Tổng kết hoàn tất. ✅ Tất cả ống đã xử lý.',
+    message: 'Tổng kết hoàn tất. ✅ Tất cả ống đã được xử lý và chốt.',
     dsOng,
-    canhBao
+    canhBao: []
   };
 }
 
