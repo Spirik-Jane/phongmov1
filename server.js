@@ -916,14 +916,28 @@ function getLocalIp() {
   return 'localhost';
 }
 
-const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0';
+function normalizePort(value) {
+  const parsed = parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : 3000;
+}
 
-app.listen(PORT, HOST, () => {
+const PORT = normalizePort(process.env.PORT || '3000');
+const HOST = process.env.HOST || '0.0.0.0';
+
+const server = app.listen(PORT, HOST, () => {
   const localIp = getLocalIp();
   console.log(`==================================================`);
   console.log(` Server đang chạy thành công!`);
   console.log(` - Truy cập tại máy này:  http://localhost:${PORT}`);
   console.log(` - Truy cập từ MÁY KHÁC (cùng wifi/LAN): http://${localIp}:${PORT}`);
   console.log(`==================================================`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[Port] Cổng ${PORT} đang được sử dụng. Hãy dừng server cũ hoặc chọn cổng khác trong file .env.`);
+  } else {
+    console.error('[Port] Không thể khởi động server:', err);
+  }
+  process.exit(1);
 });
