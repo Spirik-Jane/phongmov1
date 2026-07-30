@@ -560,6 +560,150 @@ async function layBaoCao(tuNgay, denNgay) {
     }));
 }
 
+// ============ TỔNG QUAN QUẢN LÝ THEO NGÀY / THÁNG ============
+
+/**
+ * Tổng hợp dữ liệu chỉ-đọc cho màn hình quản lý lịch sử N-HT.
+ * Hàm này không thay đổi log hoặc số liệu đã chốt; toàn bộ chỉ số đều được
+ * tính trực tiếp từ Log_ThuocNHT trong khoảng ngày được yêu cầu.
+ */
+async function layTongQuanQuanLy(tuNgay, denNgay) {
+  const isNgayHopLe = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+  if (!isNgayHopLe(tuNgay) || !isNgayHopLe(denNgay) || tuNgay > denNgay) {
+    throw new Error('Khoảng ngày không hợp lệ. Vui lòng chọn ngày bắt đầu không muộn hơn ngày kết thúc.');
+  }
+
+  // Bỏ qua mọi dòng trống / dữ liệu không thuộc nhật ký N-HT để một dòng
+  // nhập dở dang trong Google Sheet không làm sai các chỉ số tổng hợp.
+  const logs = (await layBaoCao(tuNgay, denNgay))
+    .filter(log => String(log.maOng || '').trim().startsWith('NHT-'));
+  const ongMap = new Map();
+  const ngayMap = new Map();
+  const thuocMap = new Map();
+  const benhNhan = new Set();
+
+  const getNgay = ngay => {
+    if (!ngayMap.has(ngay)) {
+      ngayMap.set(ngay, { ngayLamViec: ngay, maOngSet: new Set(), soLanSuDung: 0, soBenhNhan: new Set(), tongDaDung: 0, tongHoanTra: 0 });
+    }
+    return ngayMap.get(ngay);
+  };
+  const getThuoc = (tenThuoc, donViTinh) => {
+    const key = `${tenThuoc}||${donViTinh}`;
+    if (!thuocMap.has(key)) {
+      thuocMap.set(key, { tenThuoc, donViTinh, maOngSet: new Set(), soLanSuDung: 0, soBenhNhan: new Set(), tongDaDung: 0, tongHoanTra: 0 });
+    }
+    return thuocMap.get(key);
+  };
+
+  for (const log of logs) {
+    let ong = ongMap.get(log.maOng);
+    if (!ong) {
+      ong = {
+        maOng: log.maOng,
+        ngayLamViec: log.ngayLamViec,
+        tenThuoc: log.tenThuoc || '',
+        hamLuong: log.hamLuong || '',
+        donViTinh: log.donViTinh || '',
+        tongLieuOng: Number(log.tongLieuOng) || 0,
+        soLo: log.soLo || '',
+        hanDung: log.hanDung || '',
+        tongDaDung: 0,
+        tongHoanTra: 0,
+        soLanSuDung: 0,
+        benhNhan: new Set(),
+        lanCapNhatCuoi: ''
+      };
+      ongMap.set(log.maOng, ong);
+    }
+    // Các dòng Sử dụng/Hoàn trả cũ có thể chỉ lưu mã ống. Bổ sung lại thông
+    // tin từ dòng Mở ống cùng mã thay vì tạo một nhóm "Chưa xác định".
+    if (log.tenThuoc) ong.tenThuoc = log.tenThuoc;
+    if (log.hamLuong) ong.hamLuong = log.hamLuong;
+    if (log.donViTinh) ong.donViTinh = log.donViTinh;
+    if (Number(log.tongLieuOng)) ong.tongLieuOng = Number(log.tongLieuOng);
+    if (log.soLo) ong.soLo = log.soLo;
+    if (log.hanDung) ong.hanDung = log.hanDung;
+    ong.lanCapNhatCuoi = log.thoiGianDung || ong.lanCapNhatCuoi;
+
+    if (log.trangThai === 'SuDung') {
+      const lieu = Number(log.lieuDung) || 0;
+      ong.tongDaDung += lieu;
+      ong.soLanSuDung += 1;
+      if (log.maBN) {
+        ong.benhNhan.add(log.maBN);
+      }
+    } else if (log.trangThai === 'HoanTra' || log.trangThai === 'VoOng') {
+      const lieu = Number(log.lieuDung) || 0;
+      ong.tongHoanTra += lieu;
+    }
+  }
+
+  const canhBao = [];
+  for (const ong of ongMap.values()) {
+    const tenThuoc = ong.tenThuoc || 'Chưa xác định';
+    const day = getNgay(ong.ngayLamViec);
+    const drug = getThuoc(tenThuoc, ong.donViTinh);
+    day.maOngSet.add(ong.maOng);
+    day.soLanSuDung += ong.soLanSuDung;
+    day.tongDaDung += ong.tongDaDung;
+    day.tongHoanTra += ong.tongHoanTra;
+    drug.maOngSet.add(ong.maOng);
+    drug.soLanSuDung += ong.soLanSuDung;
+    drug.tongDaDung += ong.tongDaDung;
+    drug.tongHoanTra += ong.tongHoanTra;
+    for (const maBN of ong.benhNhan) {
+      benhNhan.add(maBN);
+      day.soBenhNhan.add(maBN);
+      drug.soBenhNhan.add(maBN);
+    }
+    ong.conLai = Math.max(0, ong.tongLieuOng - ong.tongDaDung - ong.tongHoanTra);
+    ong.trangThaiOng = ong.conLai <= 0 ? 'Đã đóng' : 'Chưa xử lý tồn dư';
+    ong.soBenhNhan = ong.benhNhan.size;
+    delete ong.benhNhan;
+    if (ong.conLai > 0) canhBao.push(ong);
+  }
+
+  const theoNgay = [...ngayMap.values()].map(item => {
+    const result = {
+      ngayLamViec: item.ngayLamViec,
+      soOng: item.maOngSet.size,
+      soLanSuDung: item.soLanSuDung,
+      soBenhNhan: item.soBenhNhan.size,
+      tongDaDung: item.tongDaDung,
+      tongHoanTra: item.tongHoanTra,
+      soOngChuaXuLy: canhBao.filter(o => o.ngayLamViec === item.ngayLamViec).length
+    };
+    return result;
+  }).sort((a, b) => b.ngayLamViec.localeCompare(a.ngayLamViec));
+
+  const theoThuoc = [...thuocMap.values()].map(item => ({
+    tenThuoc: item.tenThuoc,
+    donViTinh: item.donViTinh,
+    soOng: item.maOngSet.size,
+    soLanSuDung: item.soLanSuDung,
+    soBenhNhan: item.soBenhNhan.size,
+    tongDaDung: item.tongDaDung,
+    tongHoanTra: item.tongHoanTra,
+    soOngChuaXuLy: canhBao.filter(o => o.tenThuoc === item.tenThuoc && o.donViTinh === item.donViTinh).length
+  })).sort((a, b) => b.soLanSuDung - a.soLanSuDung || a.tenThuoc.localeCompare(b.tenThuoc, 'vi'));
+
+  return {
+    tuNgay,
+    denNgay,
+    tongQuan: {
+      soOng: ongMap.size,
+      soLanSuDung: [...ongMap.values()].reduce((sum, ong) => sum + ong.soLanSuDung, 0),
+      soBenhNhan: benhNhan.size,
+      soOngChuaXuLy: canhBao.length
+    },
+    theoNgay,
+    theoThuoc,
+    canhBao: canhBao.sort((a, b) => a.ngayLamViec.localeCompare(b.ngayLamViec) || a.tenThuoc.localeCompare(b.tenThuoc, 'vi')),
+    chiTietOng: [...ongMap.values()].sort((a, b) => b.ngayLamViec.localeCompare(a.ngayLamViec) || a.tenThuoc.localeCompare(b.tenThuoc, 'vi'))
+  };
+}
+
 // ============ KIỂM TRA ỐNG CHƯA XỬ LÝ ============
 
 async function kiemTraOngChuaXuLy(ngayLV) {
@@ -893,6 +1037,7 @@ module.exports = {
   tongKetCaTruc,
   layTongKet,
   layBaoCao,
+  layTongQuanQuanLy,
   kiemTraOngChuaXuLy,
   layDanhSachPhong,
   xuatBienBanSuDung,

@@ -120,6 +120,7 @@
               <select id="reg-vaitro" class="apple-input full">
                 <option value="NV_PM">NV Phòng mổ</option>
                 <option value="NV_KHOA_TRAI">NV Khoa/Trại</option>
+                <option value="DUOC_SI">Dược sĩ</option>
               </select>
             </div>
             <button id="btn-register" class="btn-primary full">Đăng ký</button>
@@ -149,7 +150,7 @@
           <div class="header-nav" style="margin-left: 10px; display: flex; gap: 5px;">
             <button id="nav-dashboard" class="btn-nav active"><i data-lucide="list-checks"></i> Dữ liệu HIS</button>
             <button id="nav-vattu" class="btn-nav"><i data-lucide="package"></i> Quản lý Thuốc & Vật Tư</button>
-            <button id="nav-thuocnht" class="btn-nav hidden"><i data-lucide="syringe"></i> Thuốc Nghiện</button>
+            <button id="nav-thuocnht" class="btn-nav hidden"><i data-lucide="syringe"></i> Thuốc Nghiện - Hướng Thần</button>
           </div>
         </div>
         <div class="header-right user-info" style="display:flex; align-items:center; gap:10px;">
@@ -206,7 +207,7 @@
         <!-- MÀN HÌNH THUỐC NGHIỆN / HƯỚNG THẦN -->
         <div id="view-thuocnht" class="view hidden">
           <div class="dashboard-header">
-            <h2><i data-lucide="syringe"></i> Kiểm soát Thuốc Nghiện / Hướng Thần</h2>
+            <h2><i data-lucide="syringe"></i> Thuốc Nghiện - Hướng Thần</h2>
             <div class="dash-controls" style="align-items: center;">
               <div style="display:flex; flex-direction:column; align-items:flex-end;">
                 <div class="input-with-icon">
@@ -263,6 +264,63 @@
 
             </div>
           </div>
+
+          <!-- Báo cáo N-HT: hoàn toàn chỉ-đọc, không ảnh hưởng luồng ca trực hiện hữu -->
+          <section class="nht-manager glass-panel" aria-labelledby="nht-manager-title">
+            <div class="nht-manager-heading">
+              <div>
+                <h3 id="nht-manager-title"><i data-lucide="chart-no-axes-combined"></i> Báo cáo thuốc N-HT</h3>
+                <p>Chọn <b>một</b> trong ba cách tra cứu bên dưới. Số liệu tự tải ngay khi chọn; mỗi lần chỉ áp dụng điều kiện của cách đó.</p>
+              </div>
+              <button id="btn-nht-manager-refresh" class="btn-icon small" title="Tải lại số liệu"><i data-lucide="refresh-cw"></i></button>
+            </div>
+
+            <div class="nht-manager-filters">
+              <div class="nht-time-mode" data-mode="day">
+                <label>1. Một ngày
+                  <input id="nht-manager-date" type="date" class="apple-input">
+                </label>
+              </div>
+              <div class="nht-time-mode" data-mode="month">
+                <label>2. Một tháng</label>
+                <div class="nht-month-picker">
+                  <button id="nht-manager-month-toggle" type="button" class="apple-input nht-month-toggle" aria-haspopup="dialog" aria-expanded="false">
+                    <span id="nht-manager-month-label"></span><i data-lucide="chevron-down"></i>
+                  </button>
+                  <div id="nht-manager-month-panel" class="nht-month-panel hidden" role="dialog" aria-label="Chọn tháng báo cáo">
+                    <div class="nht-month-panel-head">
+                      <button id="btn-nht-month-prev-year" type="button" class="btn-icon small" aria-label="Năm trước"><i data-lucide="chevron-left"></i></button>
+                      <strong id="nht-manager-month-year"></strong>
+                      <button id="btn-nht-month-next-year" type="button" class="btn-icon small" aria-label="Năm sau"><i data-lucide="chevron-right"></i></button>
+                    </div>
+                    <div id="nht-manager-month-grid" class="nht-month-grid"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="nht-time-mode nht-time-mode-range" data-mode="range">
+                <label>3. Từ ngày
+                  <input id="nht-manager-from" type="date" class="apple-input">
+                </label>
+                <label>Đến ngày
+                  <input id="nht-manager-to" type="date" class="apple-input">
+                </label>
+              </div>
+            </div>
+
+            <div id="nht-manager-period" class="nht-manager-period" aria-live="polite">Chọn điều kiện để xem số liệu.</div>
+            <div id="nht-manager-kpis" class="nht-manager-kpis"></div>
+            <div id="nht-manager-alerts"></div>
+            <div class="nht-manager-tables">
+              <div>
+                <h4><i data-lucide="pill"></i> Tổng hợp theo thuốc</h4>
+                <div id="nht-manager-by-drug" class="nht-manager-table-wrap"></div>
+              </div>
+              <div>
+                <h4><i data-lucide="calendar"></i> Nhật ký theo ngày</h4>
+                <div id="nht-manager-by-day" class="nht-manager-table-wrap"></div>
+              </div>
+            </div>
+          </section>
         </div>
 
         <!-- MÀN HÌNH UPLOAD -->

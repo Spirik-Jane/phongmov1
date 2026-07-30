@@ -131,6 +131,13 @@ async function yeuCauKTVGM(req, res, next) {
   }
 }
 
+function laDuocSi(vaiTro) {
+  const normalized = String(vaiTro || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/\s+/g, '_');
+  return normalized === 'DUOC_SI' || normalized === 'DUOCSY';
+}
+
 // ============ PHÂN TÍCH FILE (chưa ghi dữ liệu) ============
 app.post('/api/phan-tich', upload.single('file'), async (req, res) => {
   try {
@@ -743,7 +750,9 @@ app.get('/api/thuoc-nht/kiem-tra-quyen', yeuCauDangNhap, async (req, res) => {
     const isKTV = await thuocNHT.kiemTraQuyenKTVGM(req.currentUser.hoTen);
     const isAdmin = req.currentUser.vaiTro === 'Admin';
     const isNVPM = req.currentUser.vaiTro === 'NV_PM';
-    res.json({ success: true, isKTVGM: isKTV || isAdmin || isNVPM });
+    // Dược sĩ được xem đầy đủ danh mục, nhật ký và báo cáo N-HT; thao tác
+    // ghi nhận vẫn dành cho KTV gây mê/NV phòng mổ để bảo toàn phân quyền.
+    res.json({ success: true, isKTVGM: isKTV || isAdmin || isNVPM, isDuocSi: laDuocSi(req.currentUser.vaiTro) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -813,6 +822,15 @@ app.get('/api/thuoc-nht/tong-ket/:ngay', yeuCauDangNhap, async (req, res) => {
 app.get('/api/thuoc-nht/bao-cao', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.layBaoCao(req.query.tuNgay, req.query.denNgay) }); }
   catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// Tổng quan chỉ-đọc cho trung tâm quản lý theo ngày, tháng hoặc khoảng tùy chọn.
+app.get('/api/thuoc-nht/tong-quan', yeuCauDangNhap, async (req, res) => {
+  try {
+    res.json({ success: true, data: await thuocNHT.layTongQuanQuanLy(req.query.tuNgay, req.query.denNgay) });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
 });
 
 app.get('/api/thuoc-nht/canh-bao', yeuCauDangNhap, async (req, res) => {
@@ -909,4 +927,3 @@ app.listen(PORT, HOST, () => {
   console.log(` - Truy cập từ MÁY KHÁC (cùng wifi/LAN): http://${localIp}:${PORT}`);
   console.log(`==================================================`);
 });
-

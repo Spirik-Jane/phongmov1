@@ -1987,9 +1987,16 @@ if (btnNoteSave) {
 // ============ THUỐC NGHIỆN / HƯỚNG THẦN ============
 
 let isKTVGM = false;
+let isDuocSi = false;
 let nhtDanhMuc = [];
 let dsBenhNhan = [];
 let dsNhanSu = [];
+let nhtManagerInitialized = false;
+let nhtManagerRequestId = 0;
+let nhtManagerMode = 'day';
+let nhtManagerSelectedMonth = '';
+let nhtManagerMonthPanelYear = new Date().getFullYear();
+let nhtManagerLastSelectedDay = '';
 
 function populateNHTDateSelect() {
   const select = document.getElementById('nht-date');
@@ -2050,19 +2057,23 @@ async function loadThuocNHT() {
   const picker = document.getElementById('nht-date');
   if (picker && !picker.value) picker.value = ngayLV;
 
+  initNHTManager(ngayLV);
+  loadNHTManager();
+
   // 1. Kiểm tra quyền KTV GM
   try {
     const res = await fetch('/api/thuoc-nht/kiem-tra-quyen');
     const authData = await res.json();
     if (authData.success) {
       isKTVGM = authData.isKTVGM;
+      isDuocSi = authData.isDuocSi === true;
     }
   } catch (e) { }
 
-  if (!isKTVGM) {
+  if (!isKTVGM && !isDuocSi) {
     document.getElementById('nht-quick-pick').innerHTML = '<div class="msg error" style="grid-column:1/-1;">Chỉ KTV Gây Mê (hoặc Admin) mới được chọn mở ống thuốc.</div>';
   } else {
-    // Tải danh mục
+    // Dược sĩ được xem đầy đủ danh mục để đối chiếu, nhưng không mở ống từ màn hình này.
     await loadNHTDanhMuc();
   }
 
@@ -2077,6 +2088,270 @@ async function loadThuocNHT() {
 
   // Tải danh sách phòng mổ
   await loadNHTDanhSachPhong();
+}
+
+// --- Báo cáo thuốc N-HT theo ngày / tháng (chỉ đọc) ---
+function formatNHTDateVN(ngay) {
+  const [yyyy, mm, dd] = String(ngay || '').split('-');
+  return yyyy && mm && dd ? `${dd}/${mm}/${yyyy}` : '—';
+}
+
+function getNHTMonthBounds(thang) {
+  if (!/^\d{4}-\d{2}$/.test(String(thang || ''))) return null;
+  const [year, month] = thang.split('-').map(Number);
+  const lastDay = String(new Date(year, month, 0).getDate()).padStart(2, '0');
+  return { tuNgay: `${thang}-01`, denNgay: `${thang}-${lastDay}` };
+}
+
+function populateNHTMonthSelect(selectedMonth) {
+  if (!/^\d{4}-\d{2}$/.test(String(selectedMonth || ''))) return;
+  nhtManagerSelectedMonth = selectedMonth;
+  nhtManagerMonthPanelYear = Number(selectedMonth.slice(0, 4));
+  renderNHTMonthPicker();
+}
+
+function renderNHTMonthPicker() {
+  const label = document.getElementById('nht-manager-month-label');
+  const year = document.getElementById('nht-manager-month-year');
+  const grid = document.getElementById('nht-manager-month-grid');
+  if (!label || !year || !grid) return;
+  const [selectedYear, selectedMonth] = nhtManagerSelectedMonth.split('-').map(Number);
+  label.textContent = `Tháng ${selectedMonth} năm ${selectedYear}`;
+  year.textContent = `Năm ${nhtManagerMonthPanelYear}`;
+  grid.innerHTML = Array.from({ length: 12 }, (_, index) => {
+    const month = index + 1;
+    const value = `${nhtManagerMonthPanelYear}-${String(month).padStart(2, '0')}`;
+    const isSelected = value === nhtManagerSelectedMonth;
+    return `<button type="button" class="nht-month-option${isSelected ? ' selected' : ''}" data-month="${value}" aria-pressed="${isSelected}">Tháng ${month}</button>`;
+  }).join('');
+  grid.querySelectorAll('.nht-month-option').forEach(button => {
+    button.addEventListener('click', () => {
+      populateNHTMonthSelect(button.dataset.month);
+      closeNHTMonthPicker();
+      const period = getNHTMonthBounds(button.dataset.month);
+      if (period) loadNHTManager(period.tuNgay, period.denNgay, 'month');
+    });
+  });
+  refreshIcons();
+}
+
+function closeNHTMonthPicker() {
+  const panel = document.getElementById('nht-manager-month-panel');
+  const toggle = document.getElementById('nht-manager-month-toggle');
+  panel?.classList.add('hidden');
+  toggle?.setAttribute('aria-expanded', 'false');
+}
+
+function escapeNHTHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+}
+
+function formatNHTNumber(value) {
+  const number = Number(value) || 0;
+  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(number);
+}
+
+function setNHTManagerMode(mode) {
+  nhtManagerMode = mode;
+  document.querySelectorAll('.nht-time-mode').forEach(item => {
+    const active = item.dataset.mode === mode;
+    item.classList.toggle('is-active', active);
+    item.classList.toggle('is-dimmed', !active);
+  });
+}
+
+function initNHTManager(defaultDate) {
+  const dateInput = document.getElementById('nht-manager-date');
+  if (!dateInput) return;
+
+  if (!nhtManagerInitialized) {
+    dateInput.value = defaultDate;
+    document.getElementById('nht-manager-from').value = defaultDate;
+    document.getElementById('nht-manager-to').value = defaultDate;
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    populateNHTMonthSelect(currentMonth);
+
+    const loadSelectedDay = () => {
+      const ngay = dateInput.value;
+      if (!ngay || ngay === nhtManagerLastSelectedDay) return;
+      nhtManagerLastSelectedDay = ngay;
+      loadNHTManager(ngay, ngay, 'day');
+    };
+    dateInput.addEventListener('focus', () => {
+      const changedMode = nhtManagerMode !== 'day';
+      setNHTManagerMode('day');
+      if (changedMode && dateInput.value) {
+        nhtManagerLastSelectedDay = '';
+        loadSelectedDay();
+      }
+    });
+    // input xử lý ngay cả khi người dùng chọn từ lịch native; change là dự phòng cho trình duyệt cũ.
+    dateInput.addEventListener('input', loadSelectedDay);
+    dateInput.addEventListener('change', loadSelectedDay);
+    const monthToggle = document.getElementById('nht-manager-month-toggle');
+    monthToggle?.addEventListener('click', () => {
+      setNHTManagerMode('month');
+      const panel = document.getElementById('nht-manager-month-panel');
+      const isOpen = !panel.classList.contains('hidden');
+      panel.classList.toggle('hidden', isOpen);
+      monthToggle.setAttribute('aria-expanded', String(!isOpen));
+      if (!isOpen) renderNHTMonthPicker();
+    });
+    document.getElementById('btn-nht-month-prev-year')?.addEventListener('click', () => {
+      nhtManagerMonthPanelYear -= 1;
+      renderNHTMonthPicker();
+    });
+    document.getElementById('btn-nht-month-next-year')?.addEventListener('click', () => {
+      nhtManagerMonthPanelYear += 1;
+      renderNHTMonthPicker();
+    });
+    ['nht-manager-from', 'nht-manager-to'].forEach(id => {
+      const input = document.getElementById(id);
+      input?.addEventListener('focus', () => setNHTManagerMode('range'));
+      input?.addEventListener('change', () => {
+        const tuNgay = document.getElementById('nht-manager-from').value;
+        const denNgay = document.getElementById('nht-manager-to').value;
+        if (tuNgay && denNgay && tuNgay <= denNgay) loadNHTManager(tuNgay, denNgay, 'range');
+      });
+    });
+    document.getElementById('btn-nht-manager-refresh')?.addEventListener('click', () => loadNHTManager(undefined, undefined, 'refresh'));
+    setNHTManagerMode('day');
+    nhtManagerInitialized = true;
+  }
+}
+
+async function loadNHTManager(tuNgay, denNgay, mode) {
+  const dateInput = document.getElementById('nht-manager-date');
+  const periodText = document.getElementById('nht-manager-period');
+  const kpis = document.getElementById('nht-manager-kpis');
+  const alerts = document.getElementById('nht-manager-alerts');
+  const byDrug = document.getElementById('nht-manager-by-drug');
+  const byDay = document.getElementById('nht-manager-by-day');
+  if (!dateInput || !periodText || !kpis || !alerts || !byDrug || !byDay) return;
+
+  tuNgay = tuNgay || document.getElementById('nht-manager-from').value || dateInput.value;
+  denNgay = denNgay || document.getElementById('nht-manager-to').value || dateInput.value;
+  if (!tuNgay || !denNgay || tuNgay > denNgay) {
+    periodText.textContent = 'Vui lòng chọn khoảng ngày hợp lệ.';
+    return;
+  }
+
+  document.getElementById('nht-manager-from').value = tuNgay;
+  document.getElementById('nht-manager-to').value = denNgay;
+  if (tuNgay === denNgay) dateInput.value = tuNgay;
+  if (mode === 'month') populateNHTMonthSelect(tuNgay.slice(0, 7));
+  if (mode === 'day' || mode === 'month' || mode === 'range') setNHTManagerMode(mode);
+  periodText.innerHTML = '<i data-lucide="loader-2" class="spin"></i> Đang tổng hợp số liệu…';
+  kpis.innerHTML = '';
+  alerts.innerHTML = '';
+  byDrug.innerHTML = '<div class="nht-manager-empty">Đang tải…</div>';
+  byDay.innerHTML = '<div class="nht-manager-empty">Đang tải…</div>';
+  refreshIcons();
+
+  try {
+    const requestId = ++nhtManagerRequestId;
+    const params = new URLSearchParams({ tuNgay, denNgay });
+    const response = await fetch(`/api/thuoc-nht/tong-quan?${params.toString()}`);
+    const responseText = await response.text();
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      throw new Error('Máy chủ đang chạy chưa có chức năng báo cáo mới. Vui lòng khởi động lại chương trình rồi tải lại trang.');
+    }
+    if (requestId !== nhtManagerRequestId) return;
+    if (!result.success) throw new Error(result.message || 'Không thể tải báo cáo.');
+    renderNHTManager(result.data);
+  } catch (error) {
+    periodText.textContent = `Không thể tải số liệu: ${error.message || 'Lỗi kết nối.'}`;
+    byDrug.innerHTML = '<div class="nht-manager-empty">Chưa có dữ liệu để hiển thị.</div>';
+    byDay.innerHTML = '<div class="nht-manager-empty">Chưa có dữ liệu để hiển thị.</div>';
+  }
+}
+
+function renderNHTManager(data) {
+  const periodText = document.getElementById('nht-manager-period');
+  const kpis = document.getElementById('nht-manager-kpis');
+  const alerts = document.getElementById('nht-manager-alerts');
+  const byDrug = document.getElementById('nht-manager-by-drug');
+  const byDay = document.getElementById('nht-manager-by-day');
+  const overview = data.tongQuan || {};
+  const isOneDay = data.tuNgay === data.denNgay;
+
+  periodText.textContent = isOneDay
+    ? `Số liệu ca trực ngày ${formatNHTDateVN(data.tuNgay)}.`
+    : `Số liệu từ ${formatNHTDateVN(data.tuNgay)} đến ${formatNHTDateVN(data.denNgay)}.`;
+
+  const cards = [
+    ['flask-conical', 'Ống thuốc đã mở', overview.soOng || 0, ''],
+    ['activity', 'Lượt sử dụng', overview.soLanSuDung || 0, ''],
+    ['users', 'Bệnh nhân sử dụng', overview.soBenhNhan || 0, ''],
+    ['triangle-alert', 'Ống còn tồn dư', overview.soOngChuaXuLy || 0, (overview.soOngChuaXuLy || 0) > 0 ? 'warning' : '']
+  ];
+  kpis.innerHTML = cards.map(([icon, label, value, className]) => `
+    <div class="nht-kpi ${className}">
+      <span class="nht-kpi-label"><i data-lucide="${icon}"></i> ${label}</span>
+      <span class="nht-kpi-value">${formatNHTNumber(value)}</span>
+    </div>`).join('');
+
+  const warnings = data.canhBao || [];
+  if (warnings.length) {
+    const warningCards = warnings.map(item => `<button type="button" class="nht-unclosed-item" data-ngay="${escapeNHTHtml(item.ngayLamViec)}" data-ma-ong="${escapeNHTHtml(item.maOng)}">
+      <span><b>${escapeNHTHtml(item.tenThuoc)}</b> ${escapeNHTHtml(item.hamLuong)}<small>Mã ${escapeNHTHtml(item.maOng)} · Ca ${formatNHTDateVN(item.ngayLamViec)}</small></span>
+      <strong>Còn ${formatNHTNumber(item.conLai)} ${escapeNHTHtml(item.donViTinh)} <i data-lucide="arrow-up-right"></i></strong>
+    </button>`).join('');
+    alerts.innerHTML = `<div class="nht-manager-alert"><strong><i data-lucide="triangle-alert"></i> ${warnings.length} ống chưa chốt / còn tồn dư — bấm vào từng ống để mở đúng ca và xử lý</strong><div class="nht-unclosed-list">${warningCards}</div></div>`;
+  } else {
+    alerts.innerHTML = '<div class="nht-manager-alert" style="background:rgba(34, 197, 94, .07); border-color:rgba(34, 197, 94, .22);"><strong style="color:#137333;"><i data-lucide="circle-check"></i> Không có ống tồn dư chưa xử lý trong khoảng đã chọn.</strong></div>';
+  }
+
+  const drugs = data.theoThuoc || [];
+  byDrug.innerHTML = drugs.length ? `<table class="nht-manager-table"><thead><tr><th>Thuốc</th><th>Ống</th><th>Lượt dùng</th><th>BN</th><th>Đã dùng</th><th>Hoàn trả / hủy</th><th>Tồn dư</th></tr></thead><tbody>${drugs.map(item => `<tr class="${item.soOngChuaXuLy ? 'nht-drug-row-unclosed' : ''}" ${item.soOngChuaXuLy ? `data-drug="${escapeNHTHtml(item.tenThuoc)}" tabindex="0" role="button"` : ''}>
+    <td><b>${escapeNHTHtml(item.tenThuoc)}</b>${item.donViTinh ? `<br><small>${escapeNHTHtml(item.donViTinh)}</small>` : ''}</td>
+    <td>${formatNHTNumber(item.soOng)}</td><td>${formatNHTNumber(item.soLanSuDung)}</td><td>${formatNHTNumber(item.soBenhNhan)}</td>
+    <td>${formatNHTNumber(item.tongDaDung)} ${escapeNHTHtml(item.donViTinh)}</td><td>${formatNHTNumber(item.tongHoanTra)} ${escapeNHTHtml(item.donViTinh)}</td>
+    <td>${item.soOngChuaXuLy ? `<span class="nht-status warning">${item.soOngChuaXuLy} chưa xử lý</span>` : '<span class="nht-status ok">Đã xử lý</span>'}</td>
+  </tr>`).join('')}</tbody></table>` : '<div class="nht-manager-empty">Không có thuốc N-HT trong khoảng đã chọn.</div>';
+
+  const days = data.theoNgay || [];
+  byDay.innerHTML = days.length ? `<table class="nht-manager-table"><thead><tr><th>Ca trực</th><th>Ống</th><th>Lượt dùng</th><th>BN</th><th>Tồn dư</th></tr></thead><tbody>${days.map(item => `<tr class="nht-day-row" data-ngay="${escapeNHTHtml(item.ngayLamViec)}" tabindex="0" role="button" title="Bấm để xem ca trực này">
+    <td><b>${formatNHTDateVN(item.ngayLamViec)}</b></td><td>${formatNHTNumber(item.soOng)}</td><td>${formatNHTNumber(item.soLanSuDung)}</td><td>${formatNHTNumber(item.soBenhNhan)}</td>
+    <td>${item.soOngChuaXuLy ? `<span class="nht-status warning">${item.soOngChuaXuLy} ống</span>` : '<span class="nht-status ok">Đã xử lý</span>'}</td>
+  </tr>`).join('')}</tbody></table>` : '<div class="nht-manager-empty">Không có ca trực trong khoảng đã chọn.</div>';
+
+  alerts.querySelectorAll('.nht-unclosed-item').forEach(button => {
+    button.addEventListener('click', () => openNHTShiftFromManager(button.dataset.ngay, button.dataset.maOng));
+  });
+  byDrug.querySelectorAll('.nht-drug-row-unclosed').forEach(row => {
+    const openFirstUnclosed = () => {
+      const warning = warnings.find(item => item.tenThuoc === row.dataset.drug);
+      if (warning) openNHTShiftFromManager(warning.ngayLamViec, warning.maOng);
+    };
+    row.addEventListener('click', openFirstUnclosed);
+    row.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openFirstUnclosed(); } });
+  });
+  byDay.querySelectorAll('.nht-day-row').forEach(row => {
+    const openShift = () => openNHTShiftFromManager(row.dataset.ngay);
+    row.addEventListener('click', openShift);
+    row.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openShift(); } });
+  });
+  refreshIcons();
+}
+
+async function openNHTShiftFromManager(ngay, maOng) {
+  const select = document.getElementById('nht-date');
+  if (!select || !/^\d{4}-\d{2}-\d{2}$/.test(String(ngay || ''))) return;
+  if (!select.querySelector(`option[value="${ngay}"]`)) {
+    const option = document.createElement('option');
+    option.value = ngay;
+    option.textContent = `Ngày chỉ định: ca trực ${formatNHTDateVN(ngay)}`;
+    select.appendChild(option);
+  }
+  select.value = ngay;
+  await Promise.all([loadNHTActiveAmpoules(), loadNHTBenhNhan()]);
+  const targetAmpoule = maOng ? document.getElementById(`nht-ampoule-${maOng}`) : null;
+  (targetAmpoule || select).scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 async function loadNHTDanhMuc() {
@@ -2103,9 +2378,10 @@ function renderNHTQuickPick(danhMuc) {
   }
 
   grid.innerHTML = danhMuc.map(t => `
-    <div class="quick-pick-item" onclick="openModalMoOng('${t.tenThuoc}', '${t.hamLuong}', '${t.donViTinh}')">
+    <div class="quick-pick-item${isKTVGM ? '' : ' nht-readonly-item'}" ${isKTVGM ? `onclick="openModalMoOng('${t.tenThuoc}', '${t.hamLuong}', '${t.donViTinh}')"` : ''}>
       <div class="qp-name">${t.tenThuoc}</div>
       <div class="qp-hamluong">${t.hamLuong}</div>
+      ${isDuocSi && !isKTVGM ? '<div class="qp-view-only">Chỉ xem</div>' : ''}
     </div>
   `).join('');
 }
@@ -2166,7 +2442,7 @@ function renderNHTActiveAmpoules(dsOng) {
       `).join('');
 
       return `
-        <div class="ampoule-card" style="margin-bottom: 10px;">
+        <div id="nht-ampoule-${o.maOng}" class="ampoule-card" style="margin-bottom: 10px;">
           <div class="ampoule-header" style="align-items: flex-start;">
             <div>
               <div class="ampoule-title"><i data-lucide="syringe"></i> ${o.tenThuoc} ${o.hamLuong}</div>
