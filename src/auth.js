@@ -80,12 +80,19 @@ async function dangNhap(username, password) {
 }
 
 // ---- ĐĂNG KÝ ----
-async function dangKy({ username, password, hoTen, khoaPhong, email, vaiTro }) {
+async function dangKy({ username, password, hoTen, khoaPhong, email, vaiTro, maNV }) {
   const users = await layDanhSachUsers();
   const existing = users.find(u => u.username.toLowerCase() === username.toLowerCase().trim());
+  const maNVChuanHoa = String(maNV || '').trim().toUpperCase();
   
   if (existing) {
     return { success: false, message: 'Tên đăng nhập đã tồn tại.' };
+  }
+  if (!maNVChuanHoa) {
+    return { success: false, message: 'Vui lòng nhập mã nhân viên.' };
+  }
+  if (users.some(u => String(u.maNV || '').trim().toUpperCase() === maNVChuanHoa)) {
+    return { success: false, message: 'Mã nhân viên đã được sử dụng cho một tài khoản khác.' };
   }
   
   const passHash = hashPassword(password);
@@ -101,7 +108,7 @@ async function dangKy({ username, password, hoTen, khoaPhong, email, vaiTro }) {
     'Cho duyet',
     email || '',
     ngayTao,
-    maNV || ''
+    maNVChuanHoa
   ]]);
   
   return { success: true, message: 'Đăng ký thành công! Tài khoản đang chờ Admin duyệt.' };

@@ -203,8 +203,8 @@ document.getElementById('btn-register').addEventListener('click', async () => {
     email: document.getElementById('reg-email').value.trim(),
     vaiTro: document.getElementById('reg-vaitro').value
   };
-  if (!data.username || !data.password) {
-    hienThongBao('reg-msg', 'Vui lòng nhập đầy đủ.', 'error');
+  if (!data.username || !data.password || !data.maNV) {
+    hienThongBao('reg-msg', 'Vui lòng nhập tên đăng nhập, mật khẩu và mã nhân viên.', 'error');
     return;
   }
   try {
@@ -1205,6 +1205,7 @@ if (document.getElementById('nav-dashboard')) {
     document.getElementById('view-dashboard').classList.add('hidden');
     if (document.getElementById('view-thuocnht')) document.getElementById('view-thuocnht').classList.add('hidden');
     if (document.getElementById('view-upload')) document.getElementById('view-upload').classList.add('hidden');
+    switchVattuSubTab('tiêuhao');
     loadVatTuTongQuan();
     loadVatTuTonKho();
   });
@@ -1222,6 +1223,18 @@ if (document.getElementById('nav-dashboard')) {
     });
   }
 }
+
+// ============ SUB-TAB VẬT TƯ / THUỐC ============
+window.switchVattuSubTab = function(tab) {
+  const panels = ['tiêuhao', 'thuoc', 'vattu'];
+  panels.forEach(p => {
+    const panel = document.getElementById(`vattu-sub-${p}`);
+    const btn = document.getElementById(`subtab-vattu-${p}`);
+    if (panel) panel.classList.toggle('hidden', p !== tab);
+    if (btn) btn.classList.toggle('active', p === tab);
+  });
+  refreshIcons();
+};
 
 // ============ QUẢN LÝ VẬT TƯ TIÊU HAO ============
 async function loadVatTuTongQuan() {

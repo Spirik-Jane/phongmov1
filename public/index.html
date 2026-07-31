@@ -104,8 +104,8 @@
               <input type="text" id="reg-hoten" class="apple-input full" placeholder="Họ tên">
             </div>
             <div class="form-group">
-              <label>Mã nhân viên</label>
-              <input type="text" id="reg-manv" class="apple-input full" placeholder="VD: 123456 (Bắt buộc với KTV GM)">
+              <label>Mã nhân viên <span class="required-mark">*</span></label>
+              <input type="text" id="reg-manv" class="apple-input full" placeholder="VD: 123456" required>
             </div>
             <div class="form-group">
               <label>Khoa/Phòng</label>
@@ -190,17 +190,58 @@
           </div>
         </div>
 
-        <!-- MÀN HÌNH KHO VẬT TƯ TIÊU HAO -->
+        <!-- MÀN HÌNH QUẢN LÝ THUỐC & VẬT TƯ -->
         <div id="view-vattu" class="view hidden">
           <div class="dashboard-header">
-            <h2><i data-lucide="package"></i> Quản lý Thuốc & Vật Tư</h2>
-            <div class="dash-controls">
+            <h2><i data-lucide="package"></i> Quản lý Thuốc &amp; Vật Tư</h2>
+          </div>
+
+          <!-- Sub-tab bar -->
+          <div class="sub-tab-bar" style="display:flex; gap:4px; margin-bottom:20px; border-bottom:2px solid var(--border-color); padding-bottom:0;">
+            <button id="subtab-vattu-tiêuhao" class="sub-tab-btn active" onclick="switchVattuSubTab('tiêuhao')">
+              <i data-lucide="flask-conical"></i> Vật tư tiêu hao
+            </button>
+            <button id="subtab-vattu-thuoc" class="sub-tab-btn" onclick="switchVattuSubTab('thuoc')">
+              <i data-lucide="pill"></i> Thuốc
+              <span class="badge-coming">Sắp ra mắt</span>
+            </button>
+            <button id="subtab-vattu-vattu" class="sub-tab-btn" onclick="switchVattuSubTab('vattu')">
+              <i data-lucide="boxes"></i> Vật tư
+              <span class="badge-coming">Sắp ra mắt</span>
+            </button>
+          </div>
+
+          <!-- Sub-tab: Vật tư tiêu hao (active mặc định) -->
+          <div id="vattu-sub-tiêuhao" class="vattu-sub-panel">
+            <div class="dash-controls" style="justify-content:flex-end; margin-bottom:16px;">
               <button id="btn-nhap-vattu" class="btn-primary"><i data-lucide="plus"></i> Nhập kho</button>
             </div>
+            <div id="vattu-stats" class="dash-stats"></div>
+            <div id="vattu-list" class="dash-list" style="margin-top: 20px;">
+              <div class="empty-state"><i data-lucide="loader-2" class="spin"></i> Đang tải dữ liệu...</div>
+            </div>
           </div>
-          <div id="vattu-stats" class="dash-stats"></div>
-          <div id="vattu-list" class="dash-list" style="margin-top: 20px;">
-            <div class="empty-state"><i data-lucide="loader-2" class="spin"></i> Đang tải dữ liệu...</div>
+
+          <!-- Sub-tab: Thuốc (placeholder) -->
+          <div id="vattu-sub-thuoc" class="vattu-sub-panel hidden">
+            <div class="empty-state" style="padding:60px 20px; flex-direction:column; gap:16px;">
+              <i data-lucide="pill" style="width:48px;height:48px;opacity:0.3;"></i>
+              <div>
+                <div style="font-size:18px; font-weight:600; margin-bottom:8px;">Quản lý Thuốc</div>
+                <div style="color:var(--text-secondary); font-size:14px;">Tính năng đang được phát triển và sẽ ra mắt sớm.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sub-tab: Vật tư (placeholder) -->
+          <div id="vattu-sub-vattu" class="vattu-sub-panel hidden">
+            <div class="empty-state" style="padding:60px 20px; flex-direction:column; gap:16px;">
+              <i data-lucide="boxes" style="width:48px;height:48px;opacity:0.3;"></i>
+              <div>
+                <div style="font-size:18px; font-weight:600; margin-bottom:8px;">Quản lý Vật tư</div>
+                <div style="color:var(--text-secondary); font-size:14px;">Tính năng đang được phát triển và sẽ ra mắt sớm.</div>
+              </div>
+            </div>
           </div>
         </div>
 
