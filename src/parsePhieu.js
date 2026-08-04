@@ -51,9 +51,17 @@ function trichXuatDanhSachMuc($, bangMuc) {
 
     const cell0 = chuanHoaKhoangTrang($(tds[0]).text());
 
-    const khopNhom = NHOM_HOP_LE.find((n) => cell0.toLowerCase().startsWith(n.toLowerCase()));
-    if (khopNhom) {
-      nhomHienTai = khopNhom;
+    const cell0Norm = (cell0 || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd');
+    if (cell0Norm.includes('chi dinh')) {
+      nhomHienTai = 'Chỉ định';
+      return;
+    }
+    if (cell0Norm.includes('vat tu')) {
+      nhomHienTai = 'Vật tư y tế';
+      return;
+    }
+    if (cell0Norm.includes('thuoc') || cell0Norm.includes('dich truyen')) {
+      nhomHienTai = 'Thuốc, dịch truyền';
       return;
     }
 

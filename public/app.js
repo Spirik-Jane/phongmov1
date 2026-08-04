@@ -516,7 +516,7 @@ function layChiDinhLapLai(danhSachMuc) {
   const ketQua = new Map();
   (danhSachMuc || []).forEach(muc => {
     const nhom = (muc.nhom || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd');
-    if (!nhom.includes('chi dinh')) return;
+    if (!nhom.includes('chi dinh') && !nhom.includes('chua phan nhom') && nhom !== '') return;
     const tenMuc = String(muc.tenMuc || '').trim();
     const key = tenMuc.toLocaleLowerCase('vi').replace(/\s+/g, ' ').trim();
     if (!key) return;

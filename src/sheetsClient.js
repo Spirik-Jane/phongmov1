@@ -69,18 +69,21 @@ async function capNhatVung(pham_vi, values) {
 // ============ SHEET VẬT TƯ TIÊU HAO ============
 
 async function docSheetVatTu(tenSheet) {
-  if (!SPREADSHEET_ID_VATTU) throw new Error('Chưa cấu hình GOOGLE_SHEET_ID_VATTU trong .env');
-  return _docSheetChung(SPREADSHEET_ID_VATTU, tenSheet);
+  const sheetId = SPREADSHEET_ID_VATTU || SPREADSHEET_ID;
+  if (!sheetId) throw new Error('Chưa cấu hình GOOGLE_SHEET_ID trong .env');
+  return _docSheetChung(sheetId, tenSheet);
 }
 
 async function themHangVatTu(tenSheet, danhSachHang) {
-  if (!SPREADSHEET_ID_VATTU) throw new Error('Chưa cấu hình GOOGLE_SHEET_ID_VATTU trong .env');
-  return _themHangChung(SPREADSHEET_ID_VATTU, tenSheet, danhSachHang);
+  const sheetId = SPREADSHEET_ID_VATTU || SPREADSHEET_ID;
+  if (!sheetId) throw new Error('Chưa cấu hình GOOGLE_SHEET_ID trong .env');
+  return _themHangChung(sheetId, tenSheet, danhSachHang);
 }
 
 async function capNhatVungVatTu(pham_vi, values) {
-  if (!SPREADSHEET_ID_VATTU) throw new Error('Chưa cấu hình GOOGLE_SHEET_ID_VATTU trong .env');
-  return _capNhatVungChung(SPREADSHEET_ID_VATTU, pham_vi, values);
+  const sheetId = SPREADSHEET_ID_VATTU || SPREADSHEET_ID;
+  if (!sheetId) throw new Error('Chưa cấu hình GOOGLE_SHEET_ID trong .env');
+  return _capNhatVungChung(sheetId, pham_vi, values);
 }
 
 module.exports = {

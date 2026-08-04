@@ -13,8 +13,25 @@ function normalizeForMatch(str) {
     .replace(/đ/g, 'd');
 }
 
+function laTrangThaiSanSang(trangThai) {
+  const norm = normalizeForMatch(trangThai);
+  return norm.includes('san sang') || norm.includes('san-sang');
+}
+
+function laTrangThaiHong(trangThai) {
+  const norm = normalizeForMatch(trangThai);
+  return norm.includes('hong');
+}
+
+function laTrangThaiHet(trangThai) {
+  const norm = normalizeForMatch(trangThai);
+  return norm.includes('het') && !norm.includes('sap het');
+}
+
 function laChiDinh(muc) {
-  return normalizeForMatch(muc.nhom).includes('chi dinh');
+  if (!muc) return false;
+  const nhomNorm = normalizeForMatch(muc.nhom);
+  return nhomNorm.includes('chi dinh') || nhomNorm.includes('chua phan nhom') || !nhomNorm;
 }
 
 function laySoLuongYeuCau(muc) {
@@ -45,12 +62,12 @@ async function layTongQuan() {
     const daDung = parseInt(db[i][4]) || 0;
     const trangThai = String(db[i][5] || '');
 
-    if (trangThai.includes('Hỏng')) {
+    if (laTrangThaiHong(trangThai)) {
       result.huHong++;
-    } else if (trangThai.includes('Hết')) {
+    } else if (laTrangThaiHet(trangThai)) {
       result.daHet++;
       result.danhSachCanhBao.push({ maQL, tenVT, daDung, gioiHan, trangThai: 'Đã hết' });
-    } else if (trangThai.includes('Sẵn sàng')) {
+    } else if (laTrangThaiSanSang(trangThai) || !trangThai) {
       // Mọi dụng cụ có trạng thái Sẵn sàng đều đang dùng được, kể cả dụng cụ mới (Đã dùng = 0).
       result.dangHoatDong++;
       
@@ -134,7 +151,7 @@ async function goiYChiDinhTuDanhSachMuc(danhSachMuc) {
     for (let i = 1; i < db.length; i++) {
       const dbTenVT = String(db[i][2] || '').trim();
       const trangThai = String(db[i][5] || '');
-      if (dbTenVT === tenVT && trangThai.includes('Sẵn sàng')) {
+      if (dbTenVT === tenVT && (laTrangThaiSanSang(trangThai) || !trangThai)) {
         cacCaySanSang.push({
           maQL: String(db[i][0] || '').trim(),
           maBC: String(db[i][1] || '').trim(),
