@@ -21,13 +21,31 @@ async function laySheetsClient() {
 
 // ============ HÀM CHUNG (nhận spreadsheetId) ============
 
+const sheetCache = {};
+const CACHE_TTL = 30 * 1000; // 30s cache
+
 async function _docSheetChung(sheetId, tenSheet) {
+  const cacheKey = `${sheetId}_${tenSheet}`;
+  const now = Date.now();
+  if (sheetCache[cacheKey] && (now - sheetCache[cacheKey].time) < CACHE_TTL) {
+    return sheetCache[cacheKey].data;
+  }
+
   const sheets = await laySheetsClient();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
     range: tenSheet
   });
-  return res.data.values || [];
+  
+  const data = res.data.values || [];
+  sheetCache[cacheKey] = { data, time: now };
+  return data;
+}
+
+function clearCache(sheetId, pham_vi) {
+  const baseSheet = pham_vi.split('!')[0];
+  delete sheetCache[`${sheetId}_${baseSheet}`];
+  delete sheetCache[`${sheetId}_${pham_vi}`];
 }
 
 async function _themHangChung(sheetId, tenSheet, danhSachHang) {
@@ -40,6 +58,7 @@ async function _themHangChung(sheetId, tenSheet, danhSachHang) {
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: danhSachHang }
   });
+  clearCache(sheetId, tenSheet);
 }
 
 async function _capNhatVungChung(sheetId, pham_vi, values) {
@@ -50,6 +69,7 @@ async function _capNhatVungChung(sheetId, pham_vi, values) {
     valueInputOption: 'USER_ENTERED',
     requestBody: { values }
   });
+  clearCache(sheetId, pham_vi);
 }
 
 // ============ SHEET CA MỔ (giữ nguyên API cũ) ============

@@ -55,6 +55,71 @@ async function guiEmailDuyetTaiKhoan(user) {
 }
 
 const app = express();
+const helmet = require('helmet');
+const morgan = require('morgan');
+const fs = require('fs');
+const https = require('https');
+const selfsigned = require('selfsigned');
+const rateLimit = require('express-rate-limit');
+
+// Bật lại CSP nhưng cấp quyền (whitelist) riêng cho Lucide Icon và Google Fonts
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:"]
+    }
+  }
+}));
+
+// Thư mục logs
+if (!fs.existsSync(path.join(__dirname, 'logs'))) {
+  fs.mkdirSync(path.join(__dirname, 'logs'));
+}
+const auditLogStream = fs.createWriteStream(path.join(__dirname, 'logs', 'audit.log'), { flags: 'a' });
+morgan.token('user', (req) => {
+  if (req.currentUser) return req.currentUser.username;
+  return 'guest';
+});
+app.use(morgan(':date[iso] | IP: :remote-addr | User: :user | Method: :method | URL: :url | Status: :status', { 
+  stream: auditLogStream,
+  skip: (req) => {
+    // Không log các file tĩnh (js, css, img, html...)
+    if (req.url.match(/\.(js|css|png|jpg|jpeg|svg|ico|html)$/i)) return true;
+    // Chỉ log các request GET gọi vào /api/
+    if (req.method === 'GET' && !req.url.startsWith('/api/')) return true;
+    return false;
+  } 
+}));
+
+
+// Giới hạn chung
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { success: false, message: 'Quá nhiều request. Vui lòng thử lại sau.' }
+});
+app.use('/api/', limiter);
+
+// Giới hạn riêng cho login
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Quá nhiều lần đăng nhập sai. Chờ 15 phút.' }
+});
+app.use('/api/login', loginLimiter);
+
+// Giới hạn register
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  message: { success: false, message: 'Đã đạt giới hạn đăng ký. Thử lại sau 1 giờ.' }
+});
+app.use('/api/register', registerLimiter);
+
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 app.use(express.json({ limit: '15mb' }));
@@ -64,8 +129,29 @@ app.use(express.static(path.join(__dirname, 'public')));
 const sessions = {};
 const SESSION_COOKIE = 'pm_session';
 const SESSION_MAX_AGE = 8 * 60 * 60 * 1000; // 8 giờ
+const MAX_SESSIONS = 200;
+const MAX_SESSIONS_PER_USER = 3;
 
 function taoSession(userData) {
+  const keys = Object.keys(sessions);
+  if (keys.length >= MAX_SESSIONS) {
+    let oldest = null, oldestTime = Infinity;
+    for (const k of keys) {
+      if (sessions[k].createdAt < oldestTime) { oldest = k; oldestTime = sessions[k].createdAt; }
+    }
+    if (oldest) delete sessions[oldest];
+  }
+  
+  let userCount = 0;
+  for (const k of keys) {
+    if (sessions[k].username === userData.username) userCount++;
+  }
+  if (userCount >= MAX_SESSIONS_PER_USER) {
+    for (const k of keys) {
+      if (sessions[k].username === userData.username) { delete sessions[k]; break; }
+    }
+  }
+
   const id = crypto.randomUUID();
   sessions[id] = { ...userData, createdAt: Date.now() };
   return id;
@@ -127,8 +213,17 @@ async function yeuCauKTVGM(req, res, next) {
     }
     next();
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Lỗi kiểm tra quyền KTV GM: ' + err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
+}
+
+function sanitizeInput(str, maxLength = 100) {
+  if (str == null) return '';
+  if (typeof str !== 'string') str = String(str);
+  str = str.trim();
+  if (str.length > maxLength) str = str.substring(0, maxLength);
+  str = str.replace(/[<>]/g, '');
+  return str;
 }
 
 function laDuocSi(vaiTro) {
@@ -139,10 +234,21 @@ function laDuocSi(vaiTro) {
 }
 
 // ============ PHÂN TÍCH FILE (chưa ghi dữ liệu) ============
-app.post('/api/phan-tich', upload.single('file'), async (req, res) => {
+app.post('/api/phan-tich', yeuCauDangNhap, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Không nhận được file.' });
+    }
+    
+    // Kiểm tra MIME type
+    const allowedMimes = ['text/html', 'text/plain', 'application/xhtml+xml'];
+    if (!allowedMimes.includes(req.file.mimetype)) {
+      return res.status(400).json({ success: false, message: 'Chỉ chấp nhận file HTML.' });
+    }
+    
+    // Giới hạn size chặt hơn cho HTML (2MB)
+    if (req.file.size > 2 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'File quá lớn (tối đa 2MB).' });
     }
 
     const html = req.file.buffer.toString('utf8');
@@ -162,13 +268,13 @@ app.post('/api/phan-tich', upload.single('file'), async (req, res) => {
 
     res.json({ success: true, tenFile: req.file.originalname, dauPhieu, danhSachMuc, cacCa });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
 // ============ KIỂM TRA DỮ LIỆU CŨ VÀ TẠO DIFF ============
-app.post('/api/kiem-tra-cap-nhat', async (req, res) => {
+app.post('/api/kiem-tra-cap-nhat', yeuCauDangNhap, async (req, res) => {
   try {
     const { maBN, ngayMo, danhSachMucMoi } = req.body;
     if (!maBN || !ngayMo || !danhSachMucMoi) {
@@ -236,13 +342,13 @@ app.post('/api/kiem-tra-cap-nhat', async (req, res) => {
       chiTietDiff: { them, xoa, doi, giuNguyen }
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
 // ============ XÁC NHẬN & GHI DỮ LIỆU ============
-app.post('/api/luu', async (req, res) => {
+app.post('/api/luu', yeuCauDangNhap, async (req, res) => {
   try {
     const { maBN, hoTen, ngayMo, tenFile, danhSachMuc, nguoiUpload } = req.body;
     if (!maBN || !ngayMo || !danhSachMuc || !danhSachMuc.length) {
@@ -257,23 +363,23 @@ app.post('/api/luu', async (req, res) => {
 
     res.json({ success: true, ...ketQua });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
 // ============ TÌM CA THỦ CÔNG THEO PID/TÊN ============
-app.get('/api/tim-ca', async (req, res) => {
+app.get('/api/tim-ca', yeuCauDangNhap, async (req, res) => {
   try {
     const ketQua = await timCaTheoPidHoacTen(req.query.q || '');
     res.json({ success: true, ketQua });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
 // ============ LẤY DỮ LIỆU DASHBOARD ============
-app.get('/api/dashboard', async (req, res) => {
+app.get('/api/dashboard', yeuCauDangNhap, async (req, res) => {
   try {
     const date = req.query.date; // format YYYY-MM-DD
     if (!date) {
@@ -283,8 +389,8 @@ app.get('/api/dashboard', async (req, res) => {
     const data = await layDanhSachDashboard(date);
     res.json({ success: true, data });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -296,15 +402,17 @@ app.get('/api/chi-tiet-ca', yeuCauDangNhap, async (req, res) => {
     const data = await layChiTietCa(maBN, ngayMo);
     res.json({ success: true, data });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
 // ============ AUTH API ============
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
+    username = sanitizeInput(username, 50);
+    password = password ? String(password).substring(0, 100) : '';
     if (!username || !password) {
       return res.status(400).json({ success: false, message: 'Thiếu tên đăng nhập hoặc mật khẩu.' });
     }
@@ -312,25 +420,32 @@ app.post('/api/login', async (req, res) => {
     if (!result.success) return res.json(result);
 
     const sid = taoSession(result.user);
-    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${sid}; Path=/; HttpOnly; Max-Age=${SESSION_MAX_AGE / 1000}`);
+    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX_AGE / 1000}`);
     res.json({ success: true, user: result.user });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
 app.post('/api/register', async (req, res) => {
   try {
-    const { username, password, hoTen, khoaPhong, email, vaiTro, maNV } = req.body;
+    let { username, password, hoTen, khoaPhong, email, vaiTro, maNV } = req.body;
+    username = sanitizeInput(username, 50);
+    password = password ? String(password).substring(0, 100) : '';
+    hoTen = sanitizeInput(hoTen, 100);
+    khoaPhong = sanitizeInput(khoaPhong, 50);
+    email = sanitizeInput(email, 100);
+    vaiTro = sanitizeInput(vaiTro, 50);
+    maNV = sanitizeInput(maNV, 50);
     if (!username || !password) {
       return res.status(400).json({ success: false, message: 'Thiếu tên đăng nhập hoặc mật khẩu.' });
     }
     const result = await dangKy({ username, password, hoTen, khoaPhong, email, vaiTro, maNV });
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -338,7 +453,7 @@ app.post('/api/logout', (req, res) => {
   const cookieHeader = req.headers.cookie || '';
   const match = cookieHeader.match(new RegExp(`${SESSION_COOKIE}=([^;]+)`));
   if (match && sessions[match[1]]) delete sessions[match[1]];
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
   res.json({ success: true });
 });
 
@@ -354,7 +469,7 @@ app.get('/api/admin/users', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
     const users = await layDanhSachUsers();
     res.json({ success: true, users: users.map(u => ({ username: u.username, hoTen: u.hoTen, vaiTro: u.vaiTro, khoaPhong: u.khoaPhong, trangThai: u.trangThai, email: u.email, ngayTao: u.ngayTao })) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -368,7 +483,7 @@ app.post('/api/admin/duyet', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
     }
     res.json(result);
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -377,7 +492,7 @@ app.post('/api/admin/khoa', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
     const result = await khoaTaiKhoan(req.body.username);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -447,8 +562,8 @@ app.put('/api/his/note', yeuCauDangNhap, async (req, res) => {
     await capNhatVung(`Case_Summary!H${dongTimThay}`, [[noteText]]);
     res.json({ success: true, note: noteText });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -458,7 +573,7 @@ app.get('/api/nhan-su', yeuCauDangNhap, async (req, res) => {
     const ds = await layDanhSachNhanSu();
     res.json({ success: true, data: ds });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -537,8 +652,8 @@ app.post('/api/chot-vat-tu', yeuCauDangNhap, async (req, res) => {
 
     res.json({ success: true, message: `Đã chốt vật tư. Người xác nhận: ${nguoiXacNhan}` });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -549,7 +664,7 @@ app.get('/api/vat-tu/tong-quan', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, r
     const data = await vatTu.layTongQuan();
     res.json({ success: true, data });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -558,7 +673,7 @@ app.get('/api/vat-tu/ton-kho', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res
     const data = await vatTu.layTonKho();
     res.json({ success: true, data });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -569,7 +684,7 @@ app.get('/api/vat-tu/goi-y-chi-dinh', yeuCauDangNhap, yeuCauQuyenVatTu, async (r
     const data = await vatTu.goiYChiDinh(maBN, ngayMo);
     res.json({ success: true, data });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -583,7 +698,7 @@ app.post('/api/vat-tu/goi-y-tu-upload', yeuCauDangNhap, yeuCauQuyenVatTu, async 
     const data = await vatTu.goiYChiDinhTuDanhSachMuc(danhSachMuc);
     res.json({ success: true, data });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -611,7 +726,7 @@ app.post('/api/vat-tu/nhap', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res) 
     });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -622,7 +737,7 @@ app.post('/api/vat-tu/bao-hong', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, r
     const result = await vatTu.baoHongVatTu(maQL, lyDo || '');
     res.json(result);
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -633,8 +748,8 @@ app.get('/api/vat-tu/bao-cao', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res
     const data = await vatTu.layLichSuVatTu(maQL);
     res.json({ success: true, data });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -699,7 +814,7 @@ app.get('/api/vat-tu/export', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, res)
       vatTu.xoaSheetTam(sheetIdToDelete).catch(() => { });
     }
     if (!res.headersSent) {
-      res.status(500).json({ success: false, message: 'Lỗi xuất báo cáo: ' + err.message });
+      res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
     }
   }
 });
@@ -709,8 +824,8 @@ app.get('/api/vat-tu/danh-muc', yeuCauDangNhap, yeuCauQuyenVatTu, async (req, re
     const data = await vatTu.layDanhMucVatTu();
     res.json({ success: true, data });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+    console.error('[Error]', err.message || err);
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -724,7 +839,7 @@ app.get('/api/users', yeuCauDangNhap, async (req, res) => {
       .map(u => ({ username: u.username, hoTen: u.hoTen, vaiTro: u.vaiTro }));
     res.json({ success: true, data: activeUsers });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
@@ -732,17 +847,17 @@ app.get('/api/users', yeuCauDangNhap, async (req, res) => {
 
 app.get('/api/thuoc-nht/danh-muc', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.layDanhMuc() }); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.post('/api/thuoc-nht/danh-muc', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
   try { res.json(await thuocNHT.themThuocVaoDanhMuc(req.body)); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.put('/api/thuoc-nht/danh-muc/:stt', yeuCauDangNhap, yeuCauAdmin, async (req, res) => {
   try { res.json(await thuocNHT.suaDanhMuc(parseInt(req.params.stt), req.body)); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.get('/api/thuoc-nht/kiem-tra-quyen', yeuCauDangNhap, async (req, res) => {
@@ -754,37 +869,37 @@ app.get('/api/thuoc-nht/kiem-tra-quyen', yeuCauDangNhap, async (req, res) => {
     // ghi nhận vẫn dành cho KTV gây mê/NV phòng mổ để bảo toàn phân quyền.
     res.json({ success: true, isKTVGM: isKTV || isAdmin || isNVPM, isDuocSi: laDuocSi(req.currentUser.vaiTro) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
 app.get('/api/thuoc-nht/phong', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.layDanhSachPhong() }); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.post('/api/thuoc-nht/mo-ong', yeuCauDangNhap, yeuCauKTVGM, async (req, res) => {
   try {
     req.body.nguoiGhi = req.currentUser.hoTen || req.currentUser.username;
     res.json(await thuocNHT.moOngMoi(req.body));
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.post('/api/thuoc-nht/su-dung', yeuCauDangNhap, yeuCauKTVGM, async (req, res) => {
   try {
     req.body.nguoiGhi = req.currentUser.hoTen || req.currentUser.username;
     res.json(await thuocNHT.ghiNhanSuDung(req.body));
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.get('/api/thuoc-nht/ong/:maOng', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.layThongTinOng(req.params.maOng) }); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.get('/api/thuoc-nht/ong-dang-mo', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.layDanhSachOngDangMo() }); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.post('/api/thuoc-nht/hoan-tra', yeuCauDangNhap, yeuCauKTVGM, async (req, res) => {
@@ -801,27 +916,27 @@ app.post('/api/thuoc-nht/hoan-tra', yeuCauDangNhap, yeuCauKTVGM, async (req, res
 
     const nguoiGhi = req.currentUser.hoTen || req.currentUser.username;
     res.json(await thuocNHT.ghiNhanHoanTra({ maOng, tenThuoc, hamLuong, tongLieuOng, donViTinh, soLo, hanDung, lieuHoanTra, lyDo, loai, nguoiChungKien, nguoiGhi }));
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.get('/api/thuoc-nht/log/:ngay', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.layLogTheoNgay(req.params.ngay) }); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.post('/api/thuoc-nht/tong-ket', yeuCauDangNhap, yeuCauKTVGM, async (req, res) => {
   try { res.json(await thuocNHT.tongKetCaTruc(req.body.ngayLV, req.currentUser.hoTen)); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.get('/api/thuoc-nht/tong-ket/:ngay', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.layTongKet(req.params.ngay) }); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.get('/api/thuoc-nht/bao-cao', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.layBaoCao(req.query.tuNgay, req.query.denNgay) }); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 // Tổng quan chỉ-đọc cho trung tâm quản lý theo ngày, tháng hoặc khoảng tùy chọn.
@@ -829,13 +944,13 @@ app.get('/api/thuoc-nht/tong-quan', yeuCauDangNhap, async (req, res) => {
   try {
     res.json({ success: true, data: await thuocNHT.layTongQuanQuanLy(req.query.tuNgay, req.query.denNgay) });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(400).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
   }
 });
 
 app.get('/api/thuoc-nht/canh-bao', yeuCauDangNhap, async (req, res) => {
   try { res.json({ success: true, data: await thuocNHT.kiemTraOngChuaXuLy() }); }
-  catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  catch (err) { res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' }); }
 });
 
 app.get('/api/thuoc-nht/bien-ban/:loai/:ngay', yeuCauDangNhap, async (req, res) => {
@@ -898,7 +1013,7 @@ app.get('/api/thuoc-nht/bien-ban/:loai/:ngay', yeuCauDangNhap, async (req, res) 
       thuocNHT.xoaSheetTam(sheetIdToDelete).catch(() => { });
     }
     if (!res.headersSent) {
-      res.status(500).json({ success: false, message: 'Lỗi xuất báo cáo: ' + err.message });
+      res.status(500).json({ success: false, message: 'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.' });
     }
   }
 });
@@ -924,20 +1039,43 @@ function normalizePort(value) {
 const PORT = normalizePort(process.env.PORT || '3000');
 const HOST = process.env.HOST || '0.0.0.0';
 
-const server = app.listen(PORT, HOST, () => {
-  const localIp = getLocalIp();
-  console.log(`==================================================`);
-  console.log(` Server đang chạy thành công!`);
-  console.log(` - Truy cập tại máy này:  http://localhost:${PORT}`);
-  console.log(` - Truy cập từ MÁY KHÁC (cùng wifi/LAN): http://${localIp}:${PORT}`);
-  console.log(`==================================================`);
-});
+const credentialsPath = path.join(__dirname, 'credentials');
+if (!fs.existsSync(credentialsPath)) {
+  fs.mkdirSync(credentialsPath);
+}
+const certPath = path.join(credentialsPath, 'cert.pem');
+const keyPath = path.join(credentialsPath, 'key.pem');
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[Port] Cổng ${PORT} đang được sử dụng. Hãy dừng server cũ hoặc chọn cổng khác trong file .env.`);
-  } else {
-    console.error('[Port] Không thể khởi động server:', err);
+async function startServer() {
+  if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+    const attrs = [{ name: 'commonName', value: 'pm-system.local' }];
+    const pems = await selfsigned.generate(attrs, { days: 365 });
+    fs.writeFileSync(certPath, pems.cert);
+    fs.writeFileSync(keyPath, pems.private);
   }
-  process.exit(1);
-});
+
+  const sslOptions = {
+    key: fs.readFileSync(keyPath),
+    cert: fs.readFileSync(certPath)
+  };
+
+  const server = https.createServer(sslOptions, app).listen(PORT, HOST, () => {
+    const localIp = getLocalIp();
+    console.log(`==================================================`);
+    console.log(` Server đang chạy thành công với HTTPS!`);
+    console.log(` - Truy cập tại máy này:  https://localhost:${PORT}`);
+    console.log(` - Truy cập từ MÁY KHÁC (cùng wifi/LAN): https://${localIp}:${PORT}`);
+    console.log(`==================================================`);
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Port] Cổng ${PORT} đang được sử dụng. Hãy dừng server cũ hoặc chọn cổng khác trong file .env.`);
+    } else {
+      console.error('[Port] Không thể khởi động server:', err);
+    }
+    process.exit(1);
+  });
+}
+
+startServer();

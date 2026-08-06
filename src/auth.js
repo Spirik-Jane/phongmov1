@@ -24,7 +24,10 @@ function verifyPassword(password, storedHash) {
   if (!storedHash || !storedHash.includes(':')) return false;
   const [salt, hash] = storedHash.split(':');
   const computed = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256').toString('base64');
-  return computed === hash;
+  const a = Buffer.from(computed);
+  const b = Buffer.from(hash);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 // ---- ĐỌC DANH SÁCH USERS ----

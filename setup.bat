@@ -52,7 +52,35 @@ if not exist "credentials\service-account.json" (
 
 echo.
 echo ===================================================
-echo SAN SANG! Bam phim bat ky de khoi dong server (npm start)...
+echo CHUAN BI KHOI DONG SERVER...
 echo ===================================================
-pause
-npm start
+echo Chon che do chay he thong:
+echo [1] Chay binh thuong (Hien cua so de theo doi)
+echo [2] Chay an (Thu nho cua so, giup khong bi tat nham)
+echo [3] Chay ngam chuyen nghiep voi PM2 (Chong saps server, tu khoi dong lai)
+echo [0] Thoat
+set /p choice="Nhap lua chon cua ban (0-3): "
+
+if "%choice%"=="1" (
+    npm start
+) else if "%choice%"=="2" (
+    echo Dang khoi dong che do thu nho...
+    start /min cmd /k "npm start"
+) else if "%choice%"=="3" (
+    echo Dang cai dat cong cu PM2 (Process Manager)...
+    call npm install -g pm2
+    
+    rem Lay ten thu muc hien tai de dat ten cho PM2
+    for %%I in (.) do set ProjectName=%%~nxI
+    call pm2 start server.js --name "%ProjectName%"
+    call pm2 save
+    
+    echo ===================================================
+    echo DA CAI DAT XONG! Server dang chay ngam hoan toan.
+    echo Ban co the tat cua so nay. 
+    echo De xem trang thai, mo terminal moi va go: pm2 status
+    echo ===================================================
+    pause
+) else (
+    exit /b 0
+)
